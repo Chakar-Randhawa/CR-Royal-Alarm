@@ -9,8 +9,8 @@ workflows:
     triggering:
       events:
         - push
-      branches:
-        - main
+      branch_patterns:
+        - pattern: 'main'
     scripts:
       - name: Install npm dependencies
         script: |
@@ -36,10 +36,3 @@ workflows:
           ./gradlew assembleDebug
     artifacts:
       - android/app/build/outputs/apk/debug/*.apk
-    publishing:
-      email:
-        recipients:
-          - cr.digital.enterprises@gmail.com # Yahan apni email likhein taake APK download link inbox mein aa jaye
-        notify:
-          success: true
-          failure: true
