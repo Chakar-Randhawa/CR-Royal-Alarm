@@ -26,28 +26,21 @@ jobs:
       - name: Build Production Web Assets
         run: npm run build
 
-      - name: Core Android Platform Injection
+      - name: Create Clean Android Platform Wrapper
         run: |
+          rm -rf android
           npx cap init "Alarmio Pro" "com.alarmio.pro" --web-dir=dist || true
-          npx cap add android || true
+          npx cap add android
           npx cap sync android
 
-      - name: Set up JDK 17 (Latest Version)
+      - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Build Android APK
-        working-directory: android
-        run: |
-          if [ -f gradlew ]; then
-            chmod +x gradlew
-            ./gradlew assembleDebug
-          else
-            echo "Error: gradlew file missing in android folder"
-            exit 1
-          fi
+      - name: Build Android APK via Root Capacitor Compiler
+        run: npx cap build android --androidreleasetype=APK --no-open
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
