@@ -1,0 +1,45 @@
+workflows:
+  android-capacitor-build:
+    name: Alarmio Pro Android Build
+    max_build_duration: 15
+    instance_type: mac_mini_m1
+    environment:
+      node: 22
+      java: 21
+    triggering:
+      events:
+        - push
+      branches:
+        - main
+    scripts:
+      - name: Install npm dependencies
+        script: |
+          npm install
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+      - name: Build Web Assets & Fix Paths
+        script: |
+          npm run build
+          if [ -f dist/index.html ]; then
+            sed -i '' 's/href="\/assets\//href=".\/assets\//g' dist/index.html || sed -i 's/href="\/assets\//href=".\/assets\//g' dist/index.html
+            sed -i '' 's/src="\/assets\//src=".\/assets\//g' dist/index.html || sed -i 's/src="\/assets\//src=".\/assets\//g' dist/index.html
+          fi
+      - name: Initialize & Sync Capacitor Android
+        script: |
+          rm -rf android
+          npx cap init "Alarmio Pro" "com.alarmio.pro" --web-dir=dist || true
+          npx cap add android
+          npx cap sync android
+      - name: Build Android Debug APK
+        script: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+    artifacts:
+      - android/app/build/outputs/apk/debug/*.apk
+    publishing:
+      email:
+        recipients:
+          - cr.digital.enterprises@gmail.com # Yahan apni email likhein taake APK download link inbox mein aa jaye
+        notify:
+          success: true
+          failure: true
