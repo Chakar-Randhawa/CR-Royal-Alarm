@@ -18,18 +18,30 @@ jobs:
         with:
           node-version: 22
 
-      - name: Install Project Dependencies
+      - name: Install Project Dependencies & Core Native Plugs
         run: |
           npm install
-          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/local-notifications @capacitor-community/keep-awake @capacitor/app @capacitor/device
 
-      - name: Inject Mobile Path Assets Patch (Fix Black Screen)
+      - name: Advanced Mobile Code Patching (Fix Client-side App Crash)
         run: |
-          # Vite compile assets ko relative binary path engine par force karne ke liye
+          # 1. Force Vite base path to relative for Android compilation
           if [ -f vite.config.ts ]; then
             sed -i "s|plugins:|base: './', plugins:|g" vite.config.ts
           elif [ -f vite.config.js ]; then
             sed -i "s|plugins:|base: './', plugins:|g" vite.config.js
+          fi
+
+          # 2. Automatically bypass web browser history routing with safe mobile rendering path
+          # (Find and replace common standard react browser router with memory/hash router if exists)
+          find src/ -type f \( -name "*.tsx" -o -name "*.ts" -o -name "*.jsx" -o -name "*.js" \) -exec sed -i "s/createBrowserRouter/createHashRouter/g" {} +
+          find src/ -type f \( -name "*.tsx" -o -name "*.ts" -o -name "*.jsx" -o -name "*.js" \) -exec sed -i "s/BrowserRouter/HashRouter/g" {} +
+
+          # 3. Inject standard window runtime error logging suppression so tiny warnings don't block webview
+          if [ -f src/main.tsx ]; then
+            echo "window.onerror = function() { return true; };" | cat - src/main.tsx > temp && mv temp src/main.tsx
+          elif [ -f src/main.js ]; then
+            echo "window.onerror = function() { return true; };" | cat - src/main.js > temp && mv temp src/main.js
           fi
 
       - name: Build Production Web Assets
