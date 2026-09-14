@@ -33,14 +33,17 @@ jobs:
           npx cap add android
           npx cap sync android
 
-      - name: Set up JDK 21 (Required for New Capacitor Native Plugins)
+      - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:
           distribution: 'zulu'
-          java-version: '21' # Isay 17 se badal kar 21 kar diya hai
+          java-version: '21'
 
-      - name: Build Android APK via Native Capacitor Command
-        run: npx cap build android --androidreleasetype=APK
+      - name: Build Debug APK via Pure Native Gradle Wrapper
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
