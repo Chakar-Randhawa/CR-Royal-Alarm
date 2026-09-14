@@ -39,8 +39,8 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Build Android APK via Root Capacitor Compiler
-        run: npx cap build android --androidreleasetype=APK --no-open
+      - name: Build Android APK via Native Capacitor Command
+        run: npx cap build android --androidreleasetype=APK
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
