@@ -23,6 +23,15 @@ jobs:
           npm install
           npm install @capacitor/core @capacitor/cli @capacitor/android
 
+      - name: Inject Mobile Path Assets Patch (Fix Black Screen)
+        run: |
+          # Vite compile assets ko relative binary path engine par force karne ke liye
+          if [ -f vite.config.ts ]; then
+            sed -i "s|plugins:|base: './', plugins:|g" vite.config.ts
+          elif [ -f vite.config.js ]; then
+            sed -i "s|plugins:|base: './', plugins:|g" vite.config.js
+          fi
+
       - name: Build Production Web Assets
         run: npm run build
 
