@@ -7,7 +7,6 @@ import { AlarmEditor } from '@/components/editor/AlarmEditor';
 import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { AlarmTrigger } from '@/components/trigger/AlarmTrigger';
 import { ToastContainer } from '@/components/ui/Toast';
-import { supabase } from '@/lib/supabase';
 import { createAlarmChannel, requestNotificationPermission } from '@/lib/notifications';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import type { Alarm, ThemeId } from '@/types';
@@ -28,29 +27,47 @@ function AppContent() {
   }, []);
 
   async function initApp() {
-    await createAlarmChannel();
-    await requestNotificationPermission();
+    try {
+      await createAlarmChannel();
+      await requestNotificationPermission();
+    } catch (e) {
+      console.log("Native notification channels not initialized in web/testing mode:", e);
+    }
 
-    // Listen for incoming alarm notifications
-    LocalNotifications.addListener('notificationReceived', (notification) => {
-      handleAlarmTrigger(notification.extra?.alarmId);
-    });
+    // Listen for incoming alarm notifications safely
+    try {
+      LocalNotifications.addListener('notificationReceived', (notification) => {
+        handleAlarmTrigger(notification.extra?.alarmId);
+      });
+    } catch (e) {
+      console.log("Capacitor listeners inactive", e);
+    }
 
-    // Load settings
-    const { data } = await supabase.from('app_settings').select('*').maybeSingle();
-    if (data) {
-      setTheme(data.theme as ThemeId);
-      if (data.onboarding_completed) {
-        setPhase('dashboard');
-      }
+    // LOAD SETTINGS 100% OFFLINE VIA LOCALSTORAGE
+    const savedTheme = localStorage.getItem('alarmio_theme');
+    const onboardingCompleted = localStorage.getItem('alarmio_onboarding_completed') === 'true';
+    
+    if (savedTheme) {
+      setTheme(savedTheme as ThemeId);
+    }
+    
+    if (onboardingCompleted) {
+      setPhase('dashboard');
     }
   }
 
-  async function handleAlarmTrigger(alarmId?: string) {
+  function handleAlarmTrigger(alarmId?: string) {
     if (!alarmId) return;
-    const { data } = await supabase.from('alarms').select('*').eq('id', alarmId).maybeSingle();
-    if (data) {
-      setTriggeredAlarm(data as Alarm);
+    
+    // Safely pull specific alarm payload from offline localStorage array
+    try {
+      const savedAlarms = JSON.parse(localStorage.getItem('alarms') || '[]');
+      const match = savedAlarms.find((a: any) => a.id === alarmId);
+      if (match) {
+        setTriggeredAlarm(match as Alarm);
+      }
+    } catch (e) {
+      console.error(e);
     }
   }
 
@@ -60,25 +77,17 @@ function AppContent() {
     }
   }
 
-  async function checkOnboarding() {
-    const { data } = await supabase.from('app_settings').select('*').maybeSingle();
-    if (data?.onboarding_completed) {
+  function checkOnboarding() {
+    const onboardingCompleted = localStorage.getItem('alarmio_onboarding_completed') === 'true';
+    if (onboardingCompleted) {
       setPhase('dashboard');
     } else {
       setPhase('onboarding');
     }
   }
 
-  async function handleOnboardingComplete() {
-    const { data } = await supabase.from('app_settings').select('*').maybeSingle();
-    if (data) {
-      await supabase
-        .from('app_settings')
-        .update({ onboarding_completed: true })
-        .eq('id', data.id);
-    } else {
-      await supabase.from('app_settings').insert({ onboarding_completed: true });
-    }
+  function handleOnboardingComplete() {
+    localStorage.setItem('alarmio_onboarding_completed', 'true');
     setPhase('dashboard');
   }
 
