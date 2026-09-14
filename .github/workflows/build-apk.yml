@@ -16,7 +16,7 @@ jobs:
       - name: Set up Node.js (For React/Capacitor)
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22 # Isay 20 se badal kar 22 kar diya hai
           cache: 'npm'
 
       - name: Install Dependencies
@@ -29,7 +29,6 @@ jobs:
 
       - name: Sync Capacitor with Android Native
         run: |
-          npx cap sat-up android || true
           npx cap add android || true
           npx cap sync android
 
