@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
 import type { Alarm, FilterTab, SortMode } from '@/types';
-import { supabase } from '@/lib/supabase';
 import { scheduleAlarm, cancelAlarm } from '@/lib/notifications';
 import { AlarmCard } from '@/components/dashboard/AlarmCard';
 import { QuickNapTiles } from '@/components/dashboard/QuickNapTiles';
@@ -25,57 +24,85 @@ export function Dashboard({ onAddAlarm, onEditAlarm, onOpenSettings }: Dashboard
     loadAlarms();
   }, []);
 
-  async function loadAlarms() {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from('alarms')
-      .select('*')
-      .order('created_at', { ascending: false });
-    if (!error && data) {
-      setAlarms(data as Alarm[]);
+  // 100% OFFLINE LOCAL STORAGE ALARMS LOADER
+  function loadAlarms() {
+    try {
+      setLoading(true);
+      const savedAlarms = localStorage.getItem('alarms_pro_list');
+      if (savedAlarms) {
+        setAlarms(JSON.parse(savedAlarms));
+      } else {
+        setAlarms([]);
+      }
+    } catch (error) {
+      console.error("Failed to parse local storage offline alarms array", error);
+      showToast("Error loading saved alarms", "error");
+    } finally {
+      setLoading(false); // Force dismiss dashboard loading overlay immediately
     }
-    setLoading(false);
   }
 
-  async function toggleAlarm(id: string, enabled: boolean) {
-    const alarm = alarms.find((a) => a.id === id);
-    if (!alarm) return;
-
-    setAlarms((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, enabled } : a))
-    );
-
-    const { error } = await supabase
-      .from('alarms')
-      .update({ enabled, updated_at: new Date().toISOString() })
-      .eq('id', id);
-
-    if (error) {
-      setAlarms((prev) =>
-        prev.map((a) => (a.id === id ? { ...a, enabled: !enabled } : a))
-      );
-      return;
-    }
-
-    if (enabled) {
-      await scheduleAlarm({ ...alarm, enabled });
-      if (alarm.show_countdown_toast) {
-        const next = getNextTime(alarm);
-        if (next) {
-          const diffMs = next.getTime() - Date.now();
-          const hours = Math.floor(diffMs / (1000 * 60 * 60));
-          const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-          showToast(`Alarm set for ${hours} hours and ${minutes} minutes from now`);
-        }
+    // 100% OFFLINE DATA FETCHING
+  function loadAlarms() {
+    try {
+      setLoading(true);
+      const savedAlarms = localStorage.getItem('alarms_pro_list');
+      if (savedAlarms) {
+        setAlarms(JSON.parse(savedAlarms));
+      } else {
+        setAlarms([]);
       }
-    } else {
-      await cancelAlarm(id);
+    } catch (error) {
+      console.error("Local load failed:", error);
+      showToast("Error loading saved alarms", "error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // OFFLINE ALARM TOGGLE MANAGEMENT
+  async function toggleAlarm(id: string, enabled: boolean) {
+    try {
+      const savedAlarms = localStorage.getItem('alarms_pro_list');
+      if (!savedAlarms) return;
+
+      let alarmsArray: Alarm[] = JSON.parse(savedAlarms);
+      const alarmIndex = alarmsArray.findIndex((a) => a.id === id);
+      if (alarmIndex === -1) return;
+
+      // Update state internally
+      alarmsArray[alarmIndex].enabled = enabled;
+      alarmsArray[alarmIndex].updated_at = new Date().toISOString();
+
+      // Commit to local disk database instantly
+      localStorage.setItem('alarms_pro_list', JSON.stringify(alarmsArray));
+      setAlarms(alarmsArray);
+
+      const targetAlarm = alarmsArray[alarmIndex];
+
+      if (enabled) {
+        await scheduleAlarm({ ...targetAlarm, enabled });
+        if (targetAlarm.show_countdown_toast) {
+          const next = getNextTime(targetAlarm);
+          if (next) {
+            const diffMs = next.getTime() - Date.now();
+            const hours = Math.floor(diffMs / (1000 * 60 * 60));
+            const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+            showToast(`Alarm set for ${hours} hours and ${minutes} minutes from now`);
+          }
+        }
+      } else {
+        await cancelAlarm(id);
+      }
+    } catch (error) {
+      console.error("Local toggle crash:", error);
+      showToast("Failed to switch alarm state", "error");
     }
   }
 
   function getNextTime(alarm: Alarm): Date | null {
     const now = new Date();
-    if (alarm.days_of_week.length > 0 && !alarm.is_one_time) {
+    if (alarm.days_of_week && alarm.days_of_week.length > 0 && !alarm.is_one_time) {
       let earliest: Date | null = null;
       for (const day of alarm.days_of_week) {
         const target = new Date();
@@ -95,60 +122,80 @@ export function Dashboard({ onAddAlarm, onEditAlarm, onOpenSettings }: Dashboard
     return target;
   }
 
+  // 100% LOCAL DELETE ENGINE
   async function deleteAlarm(id: string) {
-    await cancelAlarm(id);
-    await supabase.from('alarms').delete().eq('id', id);
-    setAlarms((prev) => prev.filter((a) => a.id !== id));
-  }
-
-  async function quickNap(minutes: number) {
-    const target = new Date(Date.now() + minutes * 60 * 1000);
-    const newAlarm = {
-      label: `Power Nap +${minutes}min`,
-      hour: target.getHours(),
-      minute: target.getMinutes(),
-      days_of_week: [],
-      enabled: true,
-      is_one_time: true,
-      mission_type: 'none',
-      snooze_duration: 5,
-      audio_source: 'tone_1',
-      volume_crescendo: 'off',
-      vibrate_override: false,
-      fade_out: 'never',
-      vibration_pattern: 'continuous',
-      show_countdown_toast: true,
-      post_dismiss_tts: false,
-      holiday_skip: false,
-      holiday_dates: [],
-      math_difficulty: 'easy',
-      math_count: 3,
-      math_anti_cheat: false,
-      shake_intensity: 'moderate',
-      shake_count: 20,
-      scanner_flashlight: false,
-      scanner_skip_pin: '',
-      snooze_limit: 0,
-      snooze_escalate: false,
-      snooze_shake_bypass: false,
-      audio_custom_url: '',
-      audio_local_path: '',
-    };
-
-    const { data, error } = await supabase
-      .from('alarms')
-      .insert(newAlarm)
-      .select()
-      .single();
-
-    if (!error && data) {
-      setAlarms((prev) => [data as Alarm, ...prev]);
-      await scheduleAlarm(data as Alarm);
-      showToast(`Power nap alarm set for ${minutes} minutes from now`);
+    try {
+      await cancelAlarm(id);
+      const savedAlarms = localStorage.getItem('alarms_pro_list');
+      if (savedAlarms) {
+        const alarmsArray: Alarm[] = JSON.parse(savedAlarms);
+        const filteredAlarms = alarmsArray.filter((a) => a.id !== id);
+        localStorage.setItem('alarms_pro_list', JSON.stringify(filteredAlarms));
+        setAlarms(filteredAlarms);
+        showToast("Alarm deleted successfully");
+      }
+    } catch (error) {
+      console.error("Local delete failed:", error);
     }
   }
 
-  const filteredAlarms = useMemo(() => {
+  // OFFLINE POWER-NAP GENERATOR
+  async function quickNap(minutes: number) {
+    try {
+      const target = new Date(Date.now() + minutes * 60 * 1000);
+      const uniqueId = 'nap_' + Date.now();
+      
+      const newAlarm: Alarm = {
+        id: uniqueId,
+        label: `Power Nap +${minutes}min`,
+        hour: target.getHours(),
+        minute: target.getMinutes(),
+        days_of_week: [],
+        enabled: true,
+        is_one_time: true,
+        mission_type: 'none',
+        snooze_duration: 5,
+        audio_source: 'tone_1',
+        volume_crescendo: 'off',
+        vibrate_override: false,
+        fade_out: 'never',
+        vibration_pattern: 'continuous',
+        show_countdown_toast: true,
+        post_dismiss_tts: false,
+        holiday_skip: false,
+        holiday_dates: [],
+        math_difficulty: 'easy',
+        math_count: 3,
+        math_anti_cheat: false,
+        shake_intensity: 'moderate',
+        shake_count: 20,
+        scanner_flashlight: false,
+        scanner_skip_pin: '',
+        snooze_limit: 0,
+        snooze_escalate: false,
+        snooze_shake_bypass: false,
+        audio_custom_url: '',
+        audio_local_path: '',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const savedAlarms = localStorage.getItem('alarms_pro_list');
+      const alarmsArray: Alarm[] = savedAlarms ? JSON.parse(savedAlarms) : [];
+      alarmsArray.unshift(newAlarm); // Put quick nap at the top of the dashboard
+      
+      localStorage.setItem('alarms_pro_list', JSON.stringify(alarmsArray));
+      setAlarms(alarmsArray);
+      
+      await scheduleAlarm(newAlarm);
+      showToast(`Power Nap set for ${minutes} minutes`);
+    } catch (error) {
+      console.error("Quick nap failed:", error);
+    }
+  }
+// This closes the quickNap function safely from our previous block step
+
+ const filteredAlarms = useMemo(() => {
     let result = [...alarms];
 
     if (filter === 'active') {
@@ -156,12 +203,16 @@ export function Dashboard({ onAddAlarm, onEditAlarm, onOpenSettings }: Dashboard
     } else if (filter === 'weekday') {
       result = result.filter(
         (a) =>
+          a.days_of_week &&
           a.days_of_week.length > 0 &&
           [1, 2, 3, 4, 5].some((d) => a.days_of_week.includes(d))
       );
     } else if (filter === 'weekend') {
       result = result.filter(
-        (a) => a.days_of_week.length > 0 && a.days_of_week.includes(0) && a.days_of_week.includes(6)
+        (a) =>
+          a.days_of_week &&
+          a.days_of_week.length > 0 &&
+          (a.days_of_week.includes(0) || a.days_of_week.includes(6))
       );
     }
 
@@ -175,7 +226,7 @@ export function Dashboard({ onAddAlarm, onEditAlarm, onOpenSettings }: Dashboard
         return aTime.getTime() - bTime.getTime();
       });
     } else if (sortMode === 'label') {
-      result.sort((a, b) => a.label.localeCompare(b.label));
+      result.sort((a, b) => (a.label || '').localeCompare(b.label || ''));
     }
 
     return result;
@@ -242,22 +293,6 @@ export function Dashboard({ onAddAlarm, onEditAlarm, onOpenSettings }: Dashboard
                 backgroundColor: filter === tab.id ? 'var(--c-surface)' : 'transparent',
                 color: filter === tab.id ? 'var(--c-text)' : 'var(--c-textMuted)',
               }}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="px-5 pb-2 flex justify-end">
-        <div className="relative">
-          <button
-            onClick={() => setSortOpen(!sortOpen)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition-colors hover:opacity-70"
-            style={{
-              backgroundColor: 'var(--c-surface)',
-              color: 'var(--c-textSecondary)',
-            }}
           >
             <SortIcon size={14} color="var(--c-textSecondary)" />
             {sortOptions.find((o) => o.value === sortMode)?.label}
