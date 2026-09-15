@@ -19,11 +19,15 @@ interface AlarmCardProps {
 }
 
 export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps) {
-  const nextTime = alarm.enabled ? getNextAlarmTime(alarm) : null;
+  // Safe validation check for internal arrays to prevent null pointer exceptions
+  const activeDays = Array.isArray(alarm?.days_of_week) ? alarm.days_of_week : [];
+  
+  const nextTime = alarm && alarm.enabled ? getNextAlarmTime(alarm) : null;
   const countdown = nextTime ? formatCountdown(nextTime) : '';
-  const isRepeating = alarm.days_of_week.length > 0;
+  const isRepeating = activeDays.length > 0;
 
   function getMissionIcon() {
+    if (!alarm) return null;
     switch (alarm.mission_type) {
       case 'math':
         return <CalculatorIcon size={14} color="var(--c-textSecondary)" />;
@@ -37,29 +41,37 @@ export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps)
   }
 
   function getDayLabel() {
+    if (!alarm) return 'Once';
     if (alarm.is_one_time) return 'One-time';
-    if (alarm.days_of_week.length === 0) return 'Once';
-    if (alarm.days_of_week.length === 7) return 'Every day';
+    if (activeDays.length === 0) return 'Once';
+    if (activeDays.length === 7) return 'Every day';
+    
     if (
-      alarm.days_of_week.length === 5 &&
-      [1, 2, 3, 4, 5].every((d) => alarm.days_of_week.includes(d))
+      activeDays.length === 5 &&
+      [1, 2, 3, 4, 5].every((d) => activeDays.includes(d))
     )
       return 'Weekdays';
+      
     if (
-      alarm.days_of_week.length === 2 &&
-      alarm.days_of_week.includes(0) &&
-      alarm.days_of_week.includes(6)
+      activeDays.length === 2 &&
+      activeDays.includes(0) &&
+      activeDays.includes(6)
     )
       return 'Weekends';
-    return alarm.days_of_week
+      
+    // Shallow copy array before running sort modifier to avoid mutating original state model
+    return [...activeDays]
       .sort((a, b) => a - b)
-      .map((d) => DAYS_OF_WEEK[d])
+      .map((d) => DAYS_OF_WEEK[d] || '')
+      .filter(Boolean)
       .join(', ');
   }
 
+  if (!alarm) return null;
+
   return (
     <div
-      className="rounded-2xl p-4 transition-all duration-200"
+      className="rounded-2xl p-4 transition-all duration-200 animate-in"
       style={{
         backgroundColor: alarm.enabled ? 'var(--c-surface)' : 'var(--c-bgTertiary)',
         border: `1px solid var(--c-border)`,
@@ -73,7 +85,7 @@ export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps)
               className="text-3xl font-bold tabular-nums tracking-tight"
               style={{ color: 'var(--c-text)' }}
             >
-              {formatTime(alarm.hour, alarm.minute)}
+              {formatTime(alarm.hour || 0, alarm.minute || 0)}
             </span>
             {alarm.enabled && countdown && (
               <span
@@ -91,7 +103,7 @@ export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps)
             className="text-sm mt-1 truncate"
             style={{ color: 'var(--c-textSecondary)' }}
           >
-            {alarm.label}
+            {alarm.label || 'Alarm'}
           </p>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <span
@@ -105,7 +117,7 @@ export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps)
             </span>
             {getMissionIcon() && (
               <span
-                className="flex items-center gap-1 text-xs px-2 py-1 rounded-md"
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded-md capitalize"
                 style={{
                   backgroundColor: 'var(--c-bgTertiary)',
                   color: 'var(--c-textSecondary)',
@@ -130,9 +142,10 @@ export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps)
           </div>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <Toggle checked={alarm.enabled} onChange={(v) => onToggle(alarm.id, v)} />
+          <Toggle checked={!!alarm.enabled} onChange={(v) => onToggle(alarm.id, v)} />
           <div className="flex gap-1">
             <button
+              type="button"
               onClick={() => onEdit(alarm)}
               className="p-2 rounded-lg transition-colors hover:opacity-70"
               style={{ backgroundColor: 'var(--c-bgTertiary)' }}
@@ -140,9 +153,10 @@ export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps)
               <EditIcon size={16} color="var(--c-textSecondary)" />
             </button>
             <button
+              type="button"
               onClick={() => onDelete(alarm.id)}
               className="p-2 rounded-lg transition-colors hover:opacity-70"
-              style={{ backgroundColor: 'var(--c-bgTertiary)' }}
+              style={{ backgroundColor: 'var(--c-error)' }}
             >
               <TrashIcon size={16} color="var(--c-error)" />
             </button>
