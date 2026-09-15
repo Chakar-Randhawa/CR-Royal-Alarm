@@ -9,8 +9,7 @@ import {
   speakBriefing,
 } from '@/lib/audio';
 import { keepScreenAwake, allowSleep } from '@/lib/notifications';
-import { supabase } from '@/lib/supabase';
-import { CloseIcon } from '@/components/icons/AlarmIcons';
+import { CloseIcon } from '@/components/icons/AlarmIcons'; // Removed Supabase Import entirely to prevent crash
 
 interface AlarmTriggerProps {
   alarm: Alarm;
@@ -27,25 +26,41 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
   const [mathProblems, setMathProblems] = useState<{ question: string; answer: number }[]>([]);
   const [pinInput, setPinInput] = useState('');
   const [showPinFallback, setShowPinFallback] = useState(false);
-  const vibrationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const vibrationTimerRef = useRef<any>(null);
 
   useEffect(() => {
-    keepScreenAwake();
-
-    playAlarmTone(
-      alarm.audio_source,
-      1.0,
-      alarm.volume_crescendo,
-      alarm.vibrate_override
-    );
-
-    vibrationTimerRef.current = vibratePattern(alarm.vibration_pattern);
-
-    if (alarm.fade_out !== 'never') {
-      startFadeOut(alarm.fade_out);
+    try {
+      keepScreenAwake();
+    } catch (e) {
+      console.log("Native screen lock bypass active");
     }
 
-    if (alarm.mission_type !== 'none') {
+    try {
+      playAlarmTone(
+        alarm ? alarm.audio_source : 'tone_1',
+        1.0,
+        alarm ? alarm.volume_crescendo : 'off',
+        !!(alarm && alarm.vibrate_override)
+      );
+    } catch (e) {
+      console.error("Audio trigger delayed", e);
+    }
+
+    try {
+      vibrationTimerRef.current = vibratePattern(alarm ? alarm.vibration_pattern : 'continuous');
+    } catch (e) {
+      console.error(e);
+    }
+
+    if (alarm && alarm.fade_out !== 'never') {
+      try {
+        startFadeOut(alarm.fade_out);
+      } catch (e) {
+        console.log(e);
+      }
+    }
+
+    if (alarm && alarm.mission_type && alarm.mission_type !== 'none') {
       setMissionState('active');
       if (alarm.mission_type === 'math') {
         generateMathProblems();
@@ -53,23 +68,32 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
     }
 
     return () => {
-      stopAlarmTone();
-      stopVibration(vibrationTimerRef.current);
-      allowSleep();
+      try {
+        stopAlarmTone();
+        if (vibrationTimerRef.current) {
+          stopVibration(vibrationTimerRef.current);
+        }
+        allowSleep();
+      } catch (e) {
+        console.log(e);
+      }
     };
   }, []);
 
   function generateMathProblems() {
     const problems: { question: string; answer: number }[] = [];
-    const count = alarm.math_count;
+    const count = alarm && typeof alarm.math_count === 'number' ? alarm.math_count : 3;
+    
     for (let i = 0; i < count; i++) {
       let a: number, b: number, answer: number, question: string;
-      if (alarm.math_difficulty === 'easy') {
+      const difficulty = alarm ? alarm.math_difficulty : 'easy';
+      
+      if (difficulty === 'easy') {
         a = Math.floor(Math.random() * 10) + 1;
         b = Math.floor(Math.random() * 10) + 1;
         answer = a + b;
         question = `${a} + ${b}`;
-      } else if (alarm.math_difficulty === 'medium') {
+      } else if (difficulty === 'medium') {
         a = Math.floor(Math.random() * 20) + 1;
         b = Math.floor(Math.random() * 20) + 1;
         const op = Math.random() > 0.5 ? '+' : '-';
@@ -93,24 +117,24 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
   }
 
   function canSnooze() {
-    if (alarm.snooze_limit > 0 && snoozesUsed >= alarm.snooze_limit) return false;
+    if (!alarm) return false;
+    if (typeof alarm.snooze_limit === 'number' && alarm.snooze_limit > 0 && snoozesUsed >= alarm.snooze_limit) return false;
     return showSnooze;
   }
 
   function getSnoozeDuration() {
+    if (!alarm) return 5;
+    const base = typeof alarm.snooze_duration === 'number' ? alarm.snooze_duration : 5;
     if (alarm.snooze_escalate) {
-      const base = alarm.snooze_duration;
       const duration = base / Math.pow(2, snoozesUsed);
       return Math.max(Math.round(duration), 1);
     }
-    return alarm.snooze_duration;
+    return base;
   }
 
   async function handleSnooze() {
-    if (alarm.snooze_shake_bypass) {
-      // Would use accelerometer; for now, require shake simulation
+    if (alarm && alarm.snooze_shake_bypass) {
       if (shakeCount < 5) {
-        // Simulate: increment shake count
         setShakeCount((prev) => prev + 1);
         return;
       }
@@ -118,11 +142,15 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
 
     const duration = getSnoozeDuration();
     setSnoozesUsed((prev) => prev + 1);
-    stopAlarmTone();
-    stopVibration(vibrationTimerRef.current);
-    allowSleep();
+    
+    try {
+      stopAlarmTone();
+      if (vibrationTimerRef.current) {
+        stopVibration(vibrationTimerRef.current);
+      }
+      allowSleep();
+    } catch (e) {}
 
-    // Schedule snooze notification
     const snoozeTime = new Date(Date.now() + duration * 60 * 1000);
     try {
       const { LocalNotifications } = await import('@capacitor/local-notifications');
@@ -131,15 +159,15 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
           {
             id: Math.floor(Math.random() * 100000),
             title: 'Alarmio Pro',
-            body: alarm.label,
+            body: alarm ? alarm.label : 'Alarm ringing',
             schedule: { at: snoozeTime },
-            extra: { alarmId: alarm.id, missionType: alarm.mission_type },
+            extra: { alarmId: alarm ? alarm.id : '', missionType: alarm ? alarm.mission_type : 'none' },
             channelId: 'alarmio-alarm',
           },
         ],
       });
-    } catch {
-      // no-op
+    } catch (e) {
+      console.log("Local notification schedule bypass");
     }
 
     onDismiss();
@@ -147,19 +175,35 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
 
   async function handleDismiss() {
     if (missionState === 'active') {
-      return; // Must complete mission first
+      return; 
     }
 
-    stopAlarmTone();
-    stopVibration(vibrationTimerRef.current);
-    allowSleep();
+        try {
+      stopAlarmTone();
+      if (vibrationTimerRef.current) {
+        stopVibration(vibrationTimerRef.current);
+      }
+      allowSleep();
+    } catch (e) {}
 
-    if (alarm.post_dismiss_tts) {
-      speakBriefing();
+    if (alarm && alarm.post_dismiss_tts) {
+      try {
+        speakBriefing();
+      } catch (e) {}
     }
 
-    if (alarm.is_one_time) {
-      await supabase.from('alarms').delete().eq('id', alarm.id);
+    // 100% OFFLINE LOCAL STORAGE SINGLE ALARM CLEANUP SYSTEM
+    if (alarm && alarm.is_one_time && alarm.id) {
+      try {
+        const savedAlarms = localStorage.getItem('alarms_pro_list');
+        if (savedAlarms) {
+          const alarmsArray: Alarm[] = JSON.parse(savedAlarms);
+          const filteredAlarms = alarmsArray.filter((a) => a.id !== alarm.id);
+          localStorage.setItem('alarms_pro_list', JSON.stringify(filteredAlarms));
+        }
+      } catch (error) {
+        console.error("Local clean operation failed on trigger exit:", error);
+      }
     }
 
     onDismiss();
@@ -167,14 +211,18 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
 
   function submitMathAnswer() {
     const answer = parseInt(mathAnswer);
-    if (isNaN(answer)) return;
+    if (isNaN(answer) || !mathProblems || !mathProblems[mathIndex]) return;
 
     if (answer === mathProblems[mathIndex].answer) {
       const nextIndex = mathIndex + 1;
       if (nextIndex >= mathProblems.length) {
         setMissionState('complete');
-        stopAlarmTone();
-        stopVibration(vibrationTimerRef.current);
+        try {
+          stopAlarmTone();
+          if (vibrationTimerRef.current) {
+            stopVibration(vibrationTimerRef.current);
+          }
+        } catch (e) {}
       } else {
         setMathIndex(nextIndex);
         setMathAnswer('');
@@ -185,16 +233,20 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
   }
 
   function submitPin() {
-    if (pinInput === alarm.scanner_skip_pin && pinInput.length > 0) {
+    if (alarm && pinInput === alarm.scanner_skip_pin && pinInput.length > 0) {
       setMissionState('complete');
-      stopAlarmTone();
-      stopVibration(vibrationTimerRef.current);
+      try {
+        stopAlarmTone();
+        if (vibrationTimerRef.current) {
+          stopVibration(vibrationTimerRef.current);
+        }
+      } catch (e) {}
     } else {
       setPinInput('');
     }
   }
 
-  const currentProblem = mathProblems[mathIndex];
+  const currentProblem = Array.isArray(mathProblems) ? mathProblems[mathIndex] : null;
   const missionComplete = missionState === 'complete' || missionState === 'idle';
 
   return (
@@ -221,15 +273,15 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
           </svg>
         </div>
 
-        <h1 className="text-4xl font-bold mb-2" style={{ color: 'var(--c-text)' }}>
-          {alarm.label}
+        <h1 className="text-4xl font-bold mb-2 text-center" style={{ color: 'var(--c-text)' }}>
+          {(alarm && alarm.label) || 'Alarm'}
         </h1>
         <p className="text-lg mb-8" style={{ color: 'var(--c-textSecondary)' }}>
           {new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
         </p>
 
         {/* Mission UI */}
-        {missionState === 'active' && alarm.mission_type === 'math' && currentProblem && (
+        {missionState === 'active' && alarm && alarm.mission_type === 'math' && currentProblem && (
           <div className="w-full mb-6">
             <p className="text-sm text-center mb-2" style={{ color: 'var(--c-textMuted)' }}>
               Solve equation {mathIndex + 1} of {mathProblems.length}
@@ -251,14 +303,13 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
                 inputMode="numeric"
                 value={mathAnswer}
                 onChange={(e) => {
-                  if (alarm.math_anti_cheat) {
-                    // Block paste by only accepting direct input
+                  if (alarm && alarm.math_anti_cheat) {
                     if (e.nativeEvent instanceof InputEvent && e.nativeEvent.inputType === 'insertFromPaste') return;
                   }
                   setMathAnswer(e.target.value);
                 }}
                 onKeyDown={(e) => e.key === 'Enter' && submitMathAnswer()}
-                onPaste={(e) => alarm.math_anti_cheat && e.preventDefault()}
+                onPaste={(e) => alarm && alarm.math_anti_cheat && e.preventDefault()}
                 placeholder="Answer"
                 className="flex-1 px-4 py-3 rounded-xl text-lg text-center outline-none"
                 style={{
@@ -268,6 +319,7 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
                 }}
               />
               <button
+                type="button"
                 onClick={submitMathAnswer}
                 className="px-6 py-3 rounded-xl font-semibold text-sm"
                 style={{
@@ -281,10 +333,10 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
           </div>
         )}
 
-        {missionState === 'active' && alarm.mission_type === 'shake' && (
-          <div className="w-full mb-6 text-center">
+                {missionState === 'active' && alarm && alarm.mission_type === 'shake' && (
+          <div className="w-full mb-6 text-center animate-in">
             <p className="text-sm mb-4" style={{ color: 'var(--c-textMuted)' }}>
-              Shake your phone {alarm.shake_count} times
+              Shake your phone {alarm.shake_count || 20} times
             </p>
             <div
               className="w-full h-4 rounded-full overflow-hidden mb-3"
@@ -293,25 +345,31 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
               <div
                 className="h-full rounded-full transition-all duration-150"
                 style={{
-                  width: `${(shakeCount / alarm.shake_count) * 100}%`,
+                  width: `${Math.min(Math.max(0, (shakeCount / (alarm.shake_count || 20)) * 100), 100)}%`,
                   backgroundColor: 'var(--c-primary)',
                 }}
               />
             </div>
             <p className="text-2xl font-bold" style={{ color: 'var(--c-text)' }}>
-              {shakeCount} / {alarm.shake_count}
+              {shakeCount} / {alarm.shake_count || 20}
             </p>
             <button
+              type="button"
               onClick={() => {
+                const targetShakes = alarm.shake_count || 20;
                 const next = shakeCount + 1;
                 setShakeCount(next);
-                if (next >= alarm.shake_count) {
+                if (next >= targetShakes) {
                   setMissionState('complete');
-                  stopAlarmTone();
-                  stopVibration(vibrationTimerRef.current);
+                  try {
+                    stopAlarmTone();
+                    if (vibrationTimerRef.current) {
+                      stopVibration(vibrationTimerRef.current);
+                    }
+                  } catch (e) {}
                 }
               }}
-              className="mt-4 px-6 py-3 rounded-xl font-semibold text-sm"
+              className="mt-4 px-6 py-3 rounded-xl font-semibold text-sm hover:opacity-80 transition-colors"
               style={{
                 backgroundColor: 'var(--c-surface)',
                 border: `1px solid var(--c-border)`,
@@ -323,8 +381,8 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
           </div>
         )}
 
-        {missionState === 'active' && alarm.mission_type === 'scanner' && (
-          <div className="w-full mb-6 text-center">
+        {missionState === 'active' && alarm && alarm.mission_type === 'scanner' && (
+          <div className="w-full mb-6 text-center animate-in">
             <div
               className="rounded-2xl p-8 mb-4"
               style={{
@@ -341,12 +399,17 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
               </p>
             </div>
             <button
+              type="button"
               onClick={() => {
                 setMissionState('complete');
-                stopAlarmTone();
-                stopVibration(vibrationTimerRef.current);
+                try {
+                  stopAlarmTone();
+                  if (vibrationTimerRef.current) {
+                    stopVibration(vibrationTimerRef.current);
+                  }
+                } catch (e) {}
               }}
-              className="px-6 py-3 rounded-xl font-semibold text-sm mb-2"
+              className="px-6 py-3 rounded-xl font-semibold text-sm mb-2 w-full"
               style={{
                 backgroundColor: 'var(--c-primary)',
                 color: 'var(--c-primaryText)',
@@ -356,20 +419,21 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
             </button>
             {alarm.scanner_skip_pin && (
               <button
+                type="button"
                 onClick={() => setShowPinFallback(!showPinFallback)}
-                className="block mx-auto text-xs mt-2"
+                className="block mx-auto text-xs mt-2 underline"
                 style={{ color: 'var(--c-textMuted)' }}
               >
                 Use PIN fallback
               </button>
             )}
             {showPinFallback && (
-              <div className="flex gap-2 mt-3">
+              <div className="flex gap-2 mt-3 animate-in">
                 <input
                   type="password"
                   inputMode="numeric"
                   value={pinInput}
-                  onChange={(e) => setPinInput(e.target.value)}
+                  onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
                   placeholder="Enter PIN"
                   className="flex-1 px-4 py-3 rounded-xl text-sm text-center outline-none"
                   style={{
@@ -379,6 +443,7 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
                   }}
                 />
                 <button
+                  type="button"
                   onClick={submitPin}
                   className="px-4 py-3 rounded-xl font-semibold text-sm"
                   style={{
@@ -393,17 +458,17 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
             )}
           </div>
         )}
-
         {missionComplete && (
-          <p className="text-sm mb-6 font-medium" style={{ color: 'var(--c-success)' }}>
+          <p className="text-sm mb-6 font-medium animate-in" style={{ color: 'var(--c-success)' }}>
             {missionState === 'complete' ? 'Mission complete! You can dismiss now.' : ''}
           </p>
         )}
 
-        {/* Action buttons */}
+        {/* Action buttons with layout integration safety */}
         <div className="flex gap-3 w-full">
           {canSnooze() && (
             <button
+              type="button"
               onClick={handleSnooze}
               className="flex-1 py-4 rounded-2xl font-semibold text-sm transition-all hover:opacity-80 active:scale-95"
               style={{
@@ -412,12 +477,13 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
                 color: 'var(--c-text)',
               }}
             >
-              {alarm.snooze_shake_bypass && shakeCount < 5
+              {alarm && alarm.snooze_shake_bypass && shakeCount < 5
                 ? `Shake to snooze (${shakeCount}/5)`
                 : `Snooze (${getSnoozeDuration()}m)`}
             </button>
           )}
           <button
+            type="button"
             onClick={handleDismiss}
             disabled={!missionComplete}
             className="flex-1 py-4 rounded-2xl font-semibold text-sm transition-all hover:opacity-80 active:scale-95 disabled:opacity-40"
