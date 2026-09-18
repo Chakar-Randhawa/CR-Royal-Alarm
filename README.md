@@ -4,11 +4,9 @@ A 100% offline Android alarm clock built with React + TypeScript + Capacitor.
 No backend, no account, no internet required — every alarm, setting and
 theme choice lives entirely in the device's local storage.
 
-## What was fixed in this build
+## What was fixed / added in this build
 
-The original code had several bugs that would have broken the app on a
-real device. All of these are fixed in this repo:
-
+### Bug fixes
 - **Notification tap did nothing** — `App.tsx` read alarms from a
   `localStorage` key (`alarms`) that nothing else ever wrote to; the rest
   of the app used `alarms_pro_list`. Every read/write now goes through a
@@ -17,29 +15,52 @@ real device. All of these are fixed in this repo:
   tag that was never closed (`/>`) before its parent `</div>`, which is
   invalid JSX and would fail to compile.
 - **Dashboard screen crashed** — `Dashboard.tsx` declared `loadAlarms()`
-  twice and had a broken/incomplete sort-dropdown block (a `<button>`
-  used without ever being opened).
-- **Toasts silently failed** — `showToast(message, type)` was called
-  with two arguments in several places, but the original `Toast.tsx`
-  only accepted one. It now supports `'default' | 'success' | 'error'`.
+  twice and had a broken/incomplete sort-dropdown block.
+- **Toasts silently failed** — `showToast(message, type)` now properly
+  supports `'default' | 'success' | 'error'`.
 - **Delete button icon was invisible** — the trash icon color matched
   its own red background exactly.
-- **Notification sound never played** — the sound resource was
-  referenced as `alarm_tone.wav` (with extension); Android's
-  `LocalNotifications` channel config expects the bare resource name
-  (`alarm_tone`, no extension) to find `res/raw/alarm_tone.wav`.
-- **Shake mission was fake** — there was only a manual "Simulate Shake"
-  button. `AlarmTrigger.tsx` now also listens to the real
-  `devicemotion` sensor (with the iOS 13+ permission prompt handled),
-  so shaking the actual phone works; the simulate button stays as a
-  fallback for testing in a browser.
-- **Supabase removed entirely** — `SettingsPanel.tsx` no longer talks to
-  any backend; every setting is read/written through
-  `src/lib/storage.ts`. The `@supabase/supabase-js` dependency and
-  `src/lib/supabase.ts` are gone.
-- Rebranded from "Alarmio Pro" throughout to **CR Royal Alarm**
-  (app name, package id `com.crroyal.alarm`, splash screen, notification
-  titles, About screen).
+- **Notification sound never played** — fixed the Android sound resource
+  reference (bare name, no extension).
+- **Supabase removed entirely** — every setting/alarm is 100% local now.
+- **"Display Over Apps" / "Battery Unrestricted" were fake** — tapping
+  them used to just flip a green checkmark with no real effect. They now
+  open the actual Android Settings screens via a small custom native
+  plugin (see "Real permissions" below) and re-check automatically when
+  you return to the app.
+
+### New features
+- **Real overlay / battery / exact-alarm permissions** — a custom native
+  Capacitor plugin (`android-assets/java/.../NativeSettingsPlugin.java`)
+  opens the genuine Android Settings screens for these three permissions,
+  which have no web API. Status is re-checked automatically whenever the
+  app regains focus (e.g. coming back from Settings).
+- **Custom song as alarm tone** — pick any song from your phone's gallery
+  (tap "Choose a song from your gallery" in the alarm editor's Audio
+  section). Pick how much of it to use as the ringing clip (5s up to the
+  full length, default 30s) — it loops seamlessly until dismissed. The
+  file is copied into the app's private storage via the Filesystem
+  plugin, so it's never re-requested from the gallery and survives
+  restarts.
+- **Real audio-reactive ringing screen** — the equalizer bars on the
+  ringing screen are driven by a live Web Audio `AnalyserNode` reading
+  the actual audio that's playing (tone or custom song) — not a canned
+  animation.
+- **Premium first-launch experience** — the very first time the app is
+  ever opened, it shows an elaborate animated splash (icon reveal → name
+  → "Founder By Chakar Randhawa" tagline) before onboarding. Every later
+  launch uses a quick, lightweight splash instead.
+- **Guided first-run tour** — right after onboarding, a real coach-mark
+  overlay highlights the actual dashboard buttons (add alarm, quick nap,
+  filters, sort, settings) one at a time with Next / Skip Tour, shown
+  only once.
+- **Android navigation-bar overlap fixed** — the floating "+" button,
+  toasts, and full-screen sheets now use `env(safe-area-inset-bottom)`
+  correctly, so content no longer collides with Android's 3-button
+  navigation bar (this only showed up on button-nav devices — gesture-nav
+  devices were already fine, since Capacitor forwards real system-bar
+  insets as CSS environment variables).
+- Rebranded from "Alarmio Pro" to **CR Royal Alarm** throughout.
 
 ## Project structure
 
@@ -156,6 +177,10 @@ Go to the **Actions** tab → **Build Android APK** → **Run workflow**
 - **Math mission**: fully real — generates and checks equations.
 - **Shake mission**: real device-motion detection on a real phone;
   falls back to a manual button in a browser (no motion sensor there).
+- **Overlay / battery / exact-alarm permissions**: fully real — backed by
+  the custom native plugin, not simulated.
+- **Custom gallery song as alarm tone**: fully real — real file picker,
+  real persistent storage, real looping playback.
 - **Scanner mission**: UI only (a real camera-based barcode scanner
   needs a native plugin like `@capacitor-community/barcode-scanning`,
   which isn't wired in — the "Simulate Scan" button stands in for it so

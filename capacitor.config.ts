@@ -5,6 +5,10 @@ const config: CapacitorConfig = {
   appName: 'CR Royal Alarm',
   webDir: 'dist',
   android: {
+    // NOTE: this array is documentation only — Capacitor does not inject
+    // arbitrary permissions from it. The GitHub Actions workflow patches
+    // the real AndroidManifest.xml with these permissions after
+    // `cap add android` (see .github/workflows/build-apk.yml).
     allowMixedContent: false,
     backgroundColor: '#000000',
     permissions: [
