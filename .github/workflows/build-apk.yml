@@ -1,9 +1,13 @@
 name: Build Android APK (100% Automated)
 
+# Builds a ready-to-install APK automatically on every push to main,
+# and can also be triggered manually from the Actions tab.
+# No third-party CI service (Codemagic etc.) is used — this runs
+# entirely on GitHub's own runners.
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  workflow_dispatch: {}
 
 jobs:
   build:
@@ -18,40 +22,119 @@ jobs:
         with:
           node-version: 22
 
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Install Project Dependencies
         run: |
           npm install
           npm install @capacitor/core @capacitor/cli @capacitor/android
+
       - name: Build Web Assets
+        run: npm run build || mkdir dist
+
+      - name: Fix relative asset paths (prevents a black screen on device)
         run: |
-          npm run build || mkdir dist
-      - name: Pure Automated Mobile Sync
-        run: |
-          rm -rf android
-          # Automatically create a fresh, error-free mobile bridge native config
-          npx cap init "Alarmio Pro" "com.alarmio.pro" --web-dir=dist --web-dir=build || true
-          npx cap add android
-          
-          # Fix the relative asset path on index.html dynamically to prevent black screen
           if [ -f dist/index.html ]; then
             sed -i 's/href="\/assets\//href=".\/assets\//g' dist/index.html
             sed -i 's/src="\/assets\//src=".\/assets\//g' dist/index.html
           fi
-          
-          npx cap sync android
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
-        with:
-          distribution: 'zulu'
-          java-version: '21'
 
-      - name: Setup Gradle Wrapper & Force Build Debug APK
-        working-directory: android
+      - name: Add Android platform (generated fresh every build)
+        # NOTE: deliberately NOT running "cap init" here — capacitor.config.ts
+        # already exists in this repo with the correct appId/appName
+        # (com.crroyal.alarm / "CR Royal Alarm"). Running cap init would
+        # overwrite that with placeholder values and silently rebrand the
+        # app back to something else.
         run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug
+          rm -rf android
+          npx cap add android
+          npx cap sync android
+
+      - name: Install app icon (all densities + adaptive icon)
+        run: |
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            mkdir -p "android/app/src/main/res/mipmap-$density"
+            cp "android-assets/mipmap-$density/ic_launcher.png" "android/app/src/main/res/mipmap-$density/ic_launcher.png"
+            cp "android-assets/mipmap-$density/ic_launcher_round.png" "android/app/src/main/res/mipmap-$density/ic_launcher_round.png"
+            cp "android-assets/mipmap-$density/ic_launcher_foreground.png" "android/app/src/main/res/mipmap-$density/ic_launcher_foreground.png"
+          done
+          mkdir -p android/app/src/main/res/mipmap-anydpi-v26
+          cp android-assets/mipmap-anydpi-v26/ic_launcher.xml android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          cp android-assets/mipmap-anydpi-v26/ic_launcher_round.xml android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+          mkdir -p android/app/src/main/res/values
+          cp android-assets/values/ic_launcher_colors.xml android/app/src/main/res/values/ic_launcher_colors.xml
+
+      - name: Copy custom native assets (notification icon + alarm sound)
+        run: |
+          mkdir -p android/app/src/main/res/drawable
+          mkdir -p android/app/src/main/res/raw
+          cp android-assets/drawable/ic_alarm.xml android/app/src/main/res/drawable/ic_alarm.xml
+          cp android-assets/raw/alarm_tone.wav android/app/src/main/res/raw/alarm_tone.wav
+
+      - name: Install custom native plugin (overlay/battery/exact-alarm settings)
+        run: |
+          mkdir -p android/app/src/main/java/com/crroyal/alarm
+          cp android-assets/java/com/crroyal/alarm/NativeSettingsPlugin.java android/app/src/main/java/com/crroyal/alarm/NativeSettingsPlugin.java
+          cp android-assets/java/com/crroyal/alarm/MainActivity.java android/app/src/main/java/com/crroyal/alarm/MainActivity.java
+
+      - name: Add required permissions to AndroidManifest.xml
+        # capacitor.config.ts's "android.permissions" field is documentation
+        # only — Capacitor does not inject arbitrary permissions from it.
+        # This runs a plain script file (not an inline sed/heredoc) so
+        # there's no shell/YAML escaping ambiguity at all.
+        run: python3 android-assets/patch_manifest.py
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x android/gradlew
+
+      - name: Force Build Debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Alarmio-Pro-Debug-APK
+          name: cr-royal-alarm-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      # ---------------------------------------------------------------
+      # OPTIONAL: signed release APK.
+      # Only runs if you've added these 4 repo secrets (Settings ->
+      # Secrets and variables -> Actions):
+      #   ANDROID_KEYSTORE_BASE64  (base64 of your .jks/.keystore file)
+      #   ANDROID_KEYSTORE_PASSWORD
+      #   ANDROID_KEY_ALIAS
+      #   ANDROID_KEY_PASSWORD
+      # Until you add them, this step is skipped automatically and the
+      # debug APK above is still produced normally.
+      # ---------------------------------------------------------------
+      - name: Decode signing keystore
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
+
+      - name: Build signed release APK
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease --no-daemon \
+            -Pandroid.injected.signing.store.file=release.keystore \
+            -Pandroid.injected.signing.store.password="$ANDROID_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$ANDROID_KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$ANDROID_KEY_PASSWORD"
+
+      - name: Upload release APK
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cr-royal-alarm-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
