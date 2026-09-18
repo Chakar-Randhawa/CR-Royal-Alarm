@@ -4,6 +4,7 @@ import { themeList } from '@/lib/themes';
 import { useTheme } from '@/contexts/ThemeContext';
 import { getSettings, saveSettings } from '@/lib/storage';
 import { requestNotificationPermission } from '@/lib/notifications';
+import { checkOverlayPermission, requestOverlayPermission, checkBatteryUnrestricted, requestBatteryUnrestricted } from '@/lib/nativeSettings';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Modal } from '@/components/ui/Modal';
 import { Dropdown } from '@/components/ui/Dropdown';
@@ -24,11 +25,24 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const [defaultCrescendo, setDefaultCrescendo] = useState<VolumeCrescendo>('off');
   const [defaultFadeOut, setDefaultFadeOut] = useState<FadeOut>('never');
   const [notifGranted, setNotifGranted] = useState(false);
+  const [overlayGranted, setOverlayGranted] = useState(false);
+  const [batteryGranted, setBatteryGranted] = useState(false);
 
   useEffect(() => {
     if (open) {
       loadSettings();
       checkNotifPermission();
+      checkOverlayPermission().then(setOverlayGranted);
+      checkBatteryUnrestricted().then(setBatteryGranted);
+
+      function handleVisibility() {
+        if (document.visibilityState === 'visible') {
+          checkOverlayPermission().then(setOverlayGranted);
+          checkBatteryUnrestricted().then(setBatteryGranted);
+        }
+      }
+      document.addEventListener('visibilitychange', handleVisibility);
+      return () => document.removeEventListener('visibilitychange', handleVisibility);
     }
   }, [open]);
 
@@ -53,6 +67,14 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     const granted = await requestNotificationPermission();
     setNotifGranted(granted);
     if (granted) showToast('Notifications enabled', 'success');
+  }
+
+  async function handleEnableOverlay() {
+    await requestOverlayPermission();
+  }
+
+  async function handleEnableBattery() {
+    await requestBatteryUnrestricted();
   }
 
   function handleThemeChange(id: ThemeId) {
@@ -193,7 +215,18 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               granted={notifGranted}
               onAction={!notifGranted ? handleEnableNotifications : undefined}
             />
-            <StatusRow icon={<ShieldIcon size={18} color="var(--c-text)" />} label="Display Over Apps" granted={true} />
+            <StatusRow
+              icon={<ShieldIcon size={18} color="var(--c-text)" />}
+              label="Display Over Apps"
+              granted={overlayGranted}
+              onAction={!overlayGranted ? handleEnableOverlay : undefined}
+            />
+            <StatusRow
+              icon={<PowerIcon size={18} color="var(--c-text)" />}
+              label="Battery Unrestricted"
+              granted={batteryGranted}
+              onAction={!batteryGranted ? handleEnableBattery : undefined}
+            />
             <StatusRow icon={<PowerIcon size={18} color="var(--c-text)" />} label="Boot Completed" granted={true} />
             <StatusRow icon={<RefreshIcon size={18} color="var(--c-text)" />} label="Reboot Protection" granted={true} />
           </div>

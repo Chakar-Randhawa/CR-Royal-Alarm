@@ -43,8 +43,9 @@ export function ToastContainer() {
 
   return (
     <div
-      className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-3 rounded-2xl shadow-2xl animate-in"
+      className="fixed left-1/2 -translate-x-1/2 z-[60] px-4 py-3 rounded-2xl shadow-2xl animate-in"
       style={{
+        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 88px)',
         backgroundColor: 'var(--c-surface)',
         border: `1px solid ${borderColor}`,
         maxWidth: '90vw',

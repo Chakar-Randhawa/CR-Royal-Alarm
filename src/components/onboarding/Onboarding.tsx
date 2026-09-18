@@ -1,6 +1,14 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useTheme } from '@/contexts/ThemeContext';
 import { requestNotificationPermission } from '@/lib/notifications';
+import {
+  checkOverlayPermission,
+  requestOverlayPermission,
+  checkBatteryUnrestricted,
+  requestBatteryUnrestricted,
+  checkExactAlarmPermission,
+  requestExactAlarmPermission,
+} from '@/lib/nativeSettings';
 import {
   ChevronRightIcon,
   ChevronLeftIcon,
@@ -19,39 +27,61 @@ interface OnboardingProps {
   onComplete: () => void;
 }
 
+type PermStatus = 'unknown' | 'granted' | 'denied';
+
 export function Onboarding({ onComplete }: OnboardingProps) {
   const { theme } = useTheme();
   const [page, setPage] = useState(0);
-  const [notifStatus, setNotifStatus] = useState<'unknown' | 'granted' | 'denied'>('unknown');
-  const [overlayStatus, setOverlayStatus] = useState<'unknown' | 'granted' | 'denied'>('unknown');
-  const [batteryStatus, setBatteryStatus] = useState<'unknown' | 'unrestricted' | 'optimized'>('unknown');
+  const [notifStatus, setNotifStatus] = useState<PermStatus>('unknown');
+  const [overlayStatus, setOverlayStatus] = useState<PermStatus>('unknown');
+  const [batteryStatus, setBatteryStatus] = useState<PermStatus>('unknown');
+  const [exactAlarmStatus, setExactAlarmStatus] = useState<PermStatus>('unknown');
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    checkPermissions();
-  }, []);
-
-  async function checkPermissions() {
+  const checkAllPermissions = useCallback(async () => {
     try {
       const perm = await LocalNotifications.checkPermissions();
       setNotifStatus(perm.display === 'granted' ? 'granted' : 'denied');
     } catch {
       setNotifStatus('denied');
     }
-  }
+    setOverlayStatus((await checkOverlayPermission()) ? 'granted' : 'denied');
+    setBatteryStatus((await checkBatteryUnrestricted()) ? 'granted' : 'denied');
+    setExactAlarmStatus((await checkExactAlarmPermission()) ? 'granted' : 'denied');
+  }, []);
+
+  useEffect(() => {
+    checkAllPermissions();
+
+    // The overlay / battery / exact-alarm screens are separate native
+    // Settings activities — the user grants them there and comes back to
+    // this screen, so we re-check every time the app regains focus.
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') {
+        checkAllPermissions();
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [checkAllPermissions]);
 
   async function requestNotif() {
     const granted = await requestNotificationPermission();
     setNotifStatus(granted ? 'granted' : 'denied');
   }
 
-  function requestOverlay() {
-    // On Android, this would open system overlay settings
-    setOverlayStatus('granted');
+  async function requestOverlay() {
+    await requestOverlayPermission();
+    // status is re-synced automatically by the visibilitychange listener
+    // when the user returns from the Settings screen
   }
 
-  function openBatterySettings() {
-    setBatteryStatus('unrestricted');
+  async function requestBattery() {
+    await requestBatteryUnrestricted();
+  }
+
+  async function requestExactAlarm() {
+    await requestExactAlarmPermission();
   }
 
   const pages = [
@@ -63,9 +93,11 @@ export function Onboarding({ onComplete }: OnboardingProps) {
       notifStatus={notifStatus}
       overlayStatus={overlayStatus}
       batteryStatus={batteryStatus}
+      exactAlarmStatus={exactAlarmStatus}
       onRequestNotif={requestNotif}
       onRequestOverlay={requestOverlay}
-      onOpenBattery={openBatterySettings}
+      onOpenBattery={requestBattery}
+      onRequestExactAlarm={requestExactAlarm}
     />,
   ];
 
@@ -379,19 +411,23 @@ function Page3({ theme }: { theme: string }) {
 interface Page4Props {
   notifStatus: 'unknown' | 'granted' | 'denied';
   overlayStatus: 'unknown' | 'granted' | 'denied';
-  batteryStatus: 'unknown' | 'unrestricted' | 'optimized';
+  batteryStatus: 'unknown' | 'granted' | 'denied';
+  exactAlarmStatus: 'unknown' | 'granted' | 'denied';
   onRequestNotif: () => void;
   onRequestOverlay: () => void;
   onOpenBattery: () => void;
+  onRequestExactAlarm: () => void;
 }
 
 function Page4({
   notifStatus,
   overlayStatus,
   batteryStatus,
+  exactAlarmStatus,
   onRequestNotif,
   onRequestOverlay,
   onOpenBattery,
+  onRequestExactAlarm,
 }: Page4Props) {
   return (
     <div className="w-full max-w-sm flex flex-col">
@@ -427,6 +463,13 @@ function Page4({
           actionLabel="Open Settings"
         />
         <PermissionRow
+          icon={<PowerIcon size={22} color="var(--c-text)" />}
+          title="Exact Alarm Scheduling"
+          status={exactAlarmStatus}
+          onAction={onRequestExactAlarm}
+          actionLabel="Open Settings"
+        />
+        <PermissionRow
           icon={<BatteryIcon size={22} color="var(--c-text)" />}
           title="Battery: Unrestricted"
           status={batteryStatus}
@@ -435,7 +478,8 @@ function Page4({
         />
       </div>
       <p className="text-xs mt-6 text-center" style={{ color: 'var(--c-textMuted)' }}>
-        You can change these permissions anytime in Settings.
+        You can change these permissions anytime in Settings. Tap a button,
+        grant it, then come back — the checkmark updates automatically.
       </p>
     </div>
   );
@@ -450,11 +494,11 @@ function PermissionRow({
 }: {
   icon: React.ReactNode;
   title: string;
-  status: 'unknown' | 'granted' | 'denied' | 'unrestricted' | 'optimized';
+  status: 'unknown' | 'granted' | 'denied';
   onAction: () => void;
   actionLabel: string;
 }) {
-  const granted = status === 'granted' || status === 'unrestricted';
+  const granted = status === 'granted';
   return (
     <div
       className="flex items-center gap-3 p-4 rounded-2xl"

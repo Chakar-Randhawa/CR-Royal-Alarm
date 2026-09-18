@@ -31,6 +31,10 @@ export interface Alarm {
   audio_source: string;
   audio_custom_url: string;
   audio_local_path: string;
+  audio_custom_name: string;
+  audio_custom_duration: number;
+  audio_custom_storage_path: string;
+  audio_clip_length: number;
   volume_crescendo: VolumeCrescendo;
   vibrate_override: boolean;
   fade_out: FadeOut;
@@ -104,6 +108,10 @@ export const defaultAlarmValues = {
   audio_source: 'tone_1',
   audio_custom_url: '',
   audio_local_path: '',
+  audio_custom_name: '',
+  audio_custom_duration: 0,
+  audio_custom_storage_path: '',
+  audio_clip_length: 30,
   volume_crescendo: 'off' as VolumeCrescendo,
   vibrate_override: false,
   fade_out: 'never' as FadeOut,

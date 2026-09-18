@@ -8,6 +8,8 @@ export const STORAGE_KEYS = {
   THEME: 'cr_royal_theme',
   ONBOARDING_COMPLETED: 'cr_royal_onboarding_completed',
   SETTINGS: 'cr_royal_settings',
+  FIRST_LAUNCH_DONE: 'cr_royal_first_launch_done',
+  TOUR_COMPLETED: 'cr_royal_tour_completed',
 } as const;
 
 export const DEFAULT_SETTINGS: AppSettings = {

@@ -3,9 +3,14 @@ import type { VibrationPattern } from '@/types';
 let currentOscillator: OscillatorNode | null = null;
 let currentGain: GainNode | null = null;
 let audioContext: AudioContext | null = null;
+let analyser: AnalyserNode | null = null;
 let crescendoTimer: ReturnType<typeof setInterval> | null = null;
 let fadeOutTimer: ReturnType<typeof setInterval> | null = null;
 let toneChangeInterval: ReturnType<typeof setInterval> | null = null;
+
+let customAudioEl: HTMLAudioElement | null = null;
+let customAudioSourceNode: MediaElementAudioSourceNode | null = null;
+let customAudioLoopHandler: (() => void) | null = null;
 
 const toneFrequencies: Record<string, number[]> = {
   tone_1: [523.25, 659.25, 783.99],
@@ -16,6 +21,33 @@ const toneFrequencies: Record<string, number[]> = {
   tone_6: [523.25, 587.33, 659.25, 698.46],
 };
 
+function ensureAudioContext(): AudioContext {
+  if (!audioContext) {
+    audioContext = new AudioContext();
+  }
+  return audioContext;
+}
+
+function ensureAnalyser(ctx: AudioContext): AnalyserNode {
+  if (!analyser || analyser.context !== ctx) {
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 128;
+    analyser.smoothingTimeConstant = 0.75;
+  }
+  return analyser;
+}
+
+/**
+ * Real-time frequency data (0-255 per bin) driving the ringing screen's
+ * equalizer visualizer. Returns null when nothing is playing yet.
+ */
+export function getAnalyserData(): Uint8Array | null {
+  if (!analyser) return null;
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(data);
+  return data;
+}
+
 export function playAlarmTone(
   toneId: string,
   volume: number = 1.0,
@@ -24,15 +56,17 @@ export function playAlarmTone(
 ): void {
   stopAlarmTone();
 
-  audioContext = new AudioContext();
+  const ctx = ensureAudioContext();
   const freqs = toneFrequencies[toneId] || toneFrequencies.tone_1;
+  const analyserNode = ensureAnalyser(ctx);
 
-  currentGain = audioContext.createGain();
+  currentGain = ctx.createGain();
   const startVolume = crescendo !== 'off' ? Math.max(0.05, 0.1 * volume) : volume;
   currentGain.gain.value = startVolume;
-  currentGain.connect(audioContext.destination);
+  currentGain.connect(analyserNode);
+  analyserNode.connect(ctx.destination);
 
-  currentOscillator = audioContext.createOscillator();
+  currentOscillator = ctx.createOscillator();
   currentOscillator.type = 'sine';
   currentOscillator.frequency.value = freqs[0];
   currentOscillator.connect(currentGain);
@@ -40,13 +74,12 @@ export function playAlarmTone(
 
   let freqIndex = 0;
   toneChangeInterval = setInterval(() => {
-    if (currentOscillator && audioContext) {
+    if (currentOscillator && ctx) {
       freqIndex = (freqIndex + 1) % freqs.length;
-      currentOscillator.frequency.setValueAtTime(freqs[freqIndex], audioContext.currentTime);
+      currentOscillator.frequency.setValueAtTime(freqs[freqIndex], ctx.currentTime);
     }
   }, 800);
 
-  // Crescendo: gradually ramp volume up to full over the chosen duration
   if (crescendo !== 'off') {
     const durationMs = parseInt(crescendo, 10) * 1000;
     const steps = Math.max(1, durationMs / 200);
@@ -54,9 +87,9 @@ export function playAlarmTone(
     let stepCount = 0;
     crescendoTimer = setInterval(() => {
       stepCount++;
-      if (currentGain && audioContext) {
+      if (currentGain && ctx) {
         const newVol = Math.min(startVolume + volumeStep * stepCount, volume);
-        currentGain.gain.setValueAtTime(newVol, audioContext.currentTime);
+        currentGain.gain.setValueAtTime(newVol, ctx.currentTime);
       }
       if (stepCount >= steps && crescendoTimer) {
         clearInterval(crescendoTimer);
@@ -87,7 +120,7 @@ export function stopAlarmTone(): void {
     try {
       currentOscillator.stop();
     } catch {
-      // already stopped, ignore
+      // already stopped
     }
     currentOscillator.disconnect();
     currentOscillator = null;
@@ -96,9 +129,99 @@ export function stopAlarmTone(): void {
     currentGain.disconnect();
     currentGain = null;
   }
-  if (audioContext) {
-    audioContext.close().catch(() => {});
-    audioContext = null;
+}
+
+/**
+ * Plays a user-picked song, looping only the first `clipLength` seconds of
+ * it (so a 3-minute song can still be used as a short, repeating alarm
+ * clip) until stopCustomAudio() is called.
+ */
+export function playCustomAudio(
+  uri: string,
+  clipLength: number,
+  volume: number = 1.0,
+  crescendo: string = 'off'
+): void {
+  stopCustomAudio();
+  stopAlarmTone();
+
+  const ctx = ensureAudioContext();
+  const analyserNode = ensureAnalyser(ctx);
+
+  customAudioEl = new Audio(uri);
+  customAudioEl.crossOrigin = 'anonymous';
+  customAudioEl.loop = false;
+
+  currentGain = ctx.createGain();
+  const startVolume = crescendo !== 'off' ? Math.max(0.05, 0.1 * volume) : volume;
+  currentGain.gain.value = startVolume;
+  currentGain.connect(analyserNode);
+  analyserNode.connect(ctx.destination);
+
+  try {
+    customAudioSourceNode = ctx.createMediaElementSource(customAudioEl);
+    customAudioSourceNode.connect(currentGain);
+  } catch (e) {
+    console.error('Failed to route custom audio through Web Audio graph', e);
+  }
+
+  const safeClipLength = clipLength > 0 ? clipLength : 30;
+  customAudioLoopHandler = () => {
+    if (customAudioEl && customAudioEl.currentTime >= safeClipLength) {
+      customAudioEl.currentTime = 0;
+      customAudioEl.play().catch(() => {});
+    }
+  };
+  customAudioEl.addEventListener('timeupdate', customAudioLoopHandler);
+  customAudioEl.addEventListener('ended', () => {
+    if (customAudioEl) {
+      customAudioEl.currentTime = 0;
+      customAudioEl.play().catch(() => {});
+    }
+  });
+
+  customAudioEl.play().catch((e) => console.error('Custom audio playback blocked', e));
+
+  if (crescendo !== 'off') {
+    const durationMs = parseInt(crescendo, 10) * 1000;
+    const steps = Math.max(1, durationMs / 200);
+    const volumeStep = (volume - startVolume) / steps;
+    let stepCount = 0;
+    crescendoTimer = setInterval(() => {
+      stepCount++;
+      if (currentGain && ctx) {
+        const newVol = Math.min(startVolume + volumeStep * stepCount, volume);
+        currentGain.gain.setValueAtTime(newVol, ctx.currentTime);
+      }
+      if (stepCount >= steps && crescendoTimer) {
+        clearInterval(crescendoTimer);
+        crescendoTimer = null;
+      }
+    }, 200);
+  }
+}
+
+export function stopCustomAudio(): void {
+  if (customAudioEl) {
+    if (customAudioLoopHandler) {
+      customAudioEl.removeEventListener('timeupdate', customAudioLoopHandler);
+      customAudioLoopHandler = null;
+    }
+    customAudioEl.pause();
+    customAudioEl.currentTime = 0;
+    customAudioEl = null;
+  }
+  if (customAudioSourceNode) {
+    customAudioSourceNode.disconnect();
+    customAudioSourceNode = null;
+  }
+  if (currentGain) {
+    currentGain.disconnect();
+    currentGain = null;
+  }
+  if (crescendoTimer) {
+    clearInterval(crescendoTimer);
+    crescendoTimer = null;
   }
 }
 
@@ -116,6 +239,7 @@ export function startFadeOut(duration: string): void {
     }
     if (count >= steps) {
       stopAlarmTone();
+      stopCustomAudio();
     }
   }, 200);
 }
@@ -133,8 +257,6 @@ export function vibratePattern(pattern: VibrationPattern): ReturnType<typeof set
   const p = VIBRATION_PATTERNS[pattern] || VIBRATION_PATTERNS.continuous;
   const cycleDuration = p.reduce((a, b) => a + b, 0) || 400;
 
-  // Fire the browser/OS vibration pattern immediately, then re-trigger it
-  // on a loop so the phone keeps buzzing until the alarm is dismissed.
   navigator.vibrate(p);
   return setInterval(() => navigator.vibrate(p), cycleDuration);
 }

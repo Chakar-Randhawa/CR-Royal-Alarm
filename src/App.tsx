@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { SplashScreen } from '@/components/SplashScreen';
+import { PremiumSplash } from '@/components/PremiumSplash';
+import { GuidedTour } from '@/components/GuidedTour';
 import { Onboarding } from '@/components/onboarding/Onboarding';
 import { Dashboard } from '@/components/dashboard/Dashboard';
 import { AlarmEditor } from '@/components/editor/AlarmEditor';
@@ -15,7 +17,9 @@ import type { Alarm } from '@/types';
 type AppPhase = 'splash' | 'onboarding' | 'dashboard';
 
 function AppContent() {
+  const [isFirstLaunch] = useState(() => localStorage.getItem(STORAGE_KEYS.FIRST_LAUNCH_DONE) !== 'true');
   const [phase, setPhase] = useState<AppPhase>('splash');
+  const [showTour, setShowTour] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [editingAlarm, setEditingAlarm] = useState<Alarm | null>(null);
@@ -35,8 +39,6 @@ function AppContent() {
       console.log('Native notification channels not initialized in web/testing mode:', e);
     }
 
-    // Listen for incoming alarm notifications so tapping / receiving one
-    // opens the full-screen AlarmTrigger UI.
     try {
       LocalNotifications.addListener('localNotificationReceived', (notification) => {
         handleAlarmTrigger(notification.extra?.alarmId);
@@ -58,19 +60,26 @@ function AppContent() {
   }
 
   function handleSplashComplete() {
-    if (phase === 'splash') {
-      checkOnboarding();
-    }
-  }
-
-  function checkOnboarding() {
+    localStorage.setItem(STORAGE_KEYS.FIRST_LAUNCH_DONE, 'true');
     const onboardingCompleted = localStorage.getItem(STORAGE_KEYS.ONBOARDING_COMPLETED) === 'true';
-    setPhase(onboardingCompleted ? 'dashboard' : 'onboarding');
+    if (onboardingCompleted) {
+      setPhase('dashboard');
+    } else {
+      setPhase('onboarding');
+    }
   }
 
   function handleOnboardingComplete() {
     localStorage.setItem(STORAGE_KEYS.ONBOARDING_COMPLETED, 'true');
     setPhase('dashboard');
+    if (localStorage.getItem(STORAGE_KEYS.TOUR_COMPLETED) !== 'true') {
+      setShowTour(true);
+    }
+  }
+
+  function handleTourFinish() {
+    localStorage.setItem(STORAGE_KEYS.TOUR_COMPLETED, 'true');
+    setShowTour(false);
   }
 
   function handleAddAlarm() {
@@ -89,7 +98,12 @@ function AppContent() {
 
   return (
     <>
-      {phase === 'splash' && <SplashScreen onComplete={handleSplashComplete} />}
+      {phase === 'splash' &&
+        (isFirstLaunch ? (
+          <PremiumSplash onComplete={handleSplashComplete} />
+        ) : (
+          <SplashScreen onComplete={handleSplashComplete} />
+        ))}
       {phase === 'onboarding' && <Onboarding onComplete={handleOnboardingComplete} />}
       {phase === 'dashboard' && (
         <Dashboard
@@ -99,6 +113,7 @@ function AppContent() {
           onOpenSettings={() => setSettingsOpen(true)}
         />
       )}
+      {phase === 'dashboard' && showTour && <GuidedTour onFinish={handleTourFinish} />}
       <AlarmEditor
         open={editorOpen}
         alarm={editingAlarm}

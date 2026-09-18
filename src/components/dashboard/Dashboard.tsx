@@ -190,6 +190,7 @@ export function Dashboard({ onAddAlarm, onEditAlarm, onOpenSettings }: Dashboard
         </div>
         <button
           onClick={onOpenSettings}
+          data-tour="settings"
           className="p-2.5 rounded-xl transition-colors hover:opacity-70"
           style={{ backgroundColor: 'var(--c-surface)' }}
         >
@@ -197,12 +198,12 @@ export function Dashboard({ onAddAlarm, onEditAlarm, onOpenSettings }: Dashboard
         </button>
       </header>
 
-      <div className="px-5 pb-3">
+      <div className="px-5 pb-3" data-tour="quicknap">
         <QuickNapTiles onQuickNap={quickNap} />
       </div>
 
       <div className="px-5 pb-3 flex items-center gap-2">
-        <div className="flex-1 flex gap-1 p-1 rounded-2xl" style={{ backgroundColor: 'var(--c-bgTertiary)' }}>
+        <div className="flex-1 flex gap-1 p-1 rounded-2xl" data-tour="filters" style={{ backgroundColor: 'var(--c-bgTertiary)' }}>
           {filterTabs.map((tab) => (
             <button
               key={tab.id}
@@ -218,7 +219,7 @@ export function Dashboard({ onAddAlarm, onEditAlarm, onOpenSettings }: Dashboard
           ))}
         </div>
 
-        <div className="relative shrink-0">
+        <div className="relative shrink-0" data-tour="sort">
           <button
             type="button"
             onClick={() => setSortOpen((v) => !v)}
@@ -253,7 +254,10 @@ export function Dashboard({ onAddAlarm, onEditAlarm, onOpenSettings }: Dashboard
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-5 pb-24">
+      <div
+        className="flex-1 overflow-y-auto px-5"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 96px)' }}
+      >
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <div
@@ -285,8 +289,10 @@ export function Dashboard({ onAddAlarm, onEditAlarm, onOpenSettings }: Dashboard
 
       <button
         onClick={onAddAlarm}
-        className="fixed bottom-6 right-6 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all hover:scale-105 active:scale-95 z-30"
+        data-tour="fab"
+        className="fixed right-6 w-14 h-14 rounded-full flex items-center justify-center shadow-2xl transition-all hover:scale-105 active:scale-95 z-30"
         style={{
+          bottom: 'max(24px, calc(env(safe-area-inset-bottom, 0px) + 16px))',
           backgroundColor: 'var(--c-primary)',
           color: 'var(--c-primaryText)',
           boxShadow: `0 8px 24px var(--c-shadow)`,

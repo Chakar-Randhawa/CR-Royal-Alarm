@@ -101,3 +101,40 @@ input[type="number"] {
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+
+/* Premium ringing screen: pulsing concentric glow rings */
+.cr-ring {
+  position: absolute;
+  border-radius: 9999px;
+  border: 2px solid var(--c-error);
+  opacity: 0;
+  animation: cr-ring-pulse 2.4s cubic-bezier(0.2, 0.6, 0.4, 1) infinite;
+}
+.cr-ring-1 { width: 100%; height: 100%; animation-delay: 0s; }
+.cr-ring-2 { width: 100%; height: 100%; animation-delay: 0.8s; }
+.cr-ring-3 { width: 100%; height: 100%; animation-delay: 1.6s; }
+
+@keyframes cr-ring-pulse {
+  0% { transform: scale(0.55); opacity: 0.55; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
+
+/* Premium ringing screen: soft floating particles */
+.cr-particle {
+  position: absolute;
+  bottom: -10px;
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background-color: var(--c-primary);
+  animation-name: cr-float-up;
+  animation-iteration-count: infinite;
+  animation-timing-function: linear;
+}
+
+@keyframes cr-float-up {
+  0% { transform: translateY(0) scale(1); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 0.4; }
+  100% { transform: translateY(-100vh) scale(0.4); opacity: 0; }
+}

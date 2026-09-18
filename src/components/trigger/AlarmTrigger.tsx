@@ -3,10 +3,13 @@ import type { Alarm } from '@/types';
 import {
   playAlarmTone,
   stopAlarmTone,
+  playCustomAudio,
+  stopCustomAudio,
   startFadeOut,
   vibratePattern,
   stopVibration,
   speakBriefing,
+  getAnalyserData,
 } from '@/lib/audio';
 import { keepScreenAwake, allowSleep } from '@/lib/notifications';
 import { getAlarms, saveAlarms } from '@/lib/storage';
@@ -22,6 +25,8 @@ const SHAKE_THRESHOLDS: Record<string, number> = {
   vigorous: 20,
 };
 
+const BAR_COUNT = 24;
+
 export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
   const [snoozesUsed, setSnoozesUsed] = useState(0);
   const [missionState, setMissionState] = useState<'idle' | 'active' | 'complete'>('idle');
@@ -31,8 +36,12 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
   const [mathProblems, setMathProblems] = useState<{ question: string; answer: number }[]>([]);
   const [pinInput, setPinInput] = useState('');
   const [showPinFallback, setShowPinFallback] = useState(false);
+  const [barLevels, setBarLevels] = useState<number[]>(() => new Array(BAR_COUNT).fill(0.1));
   const vibrationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastAccelRef = useRef({ x: 0, y: 0, z: 0, time: 0 });
+  const rafRef = useRef<number | null>(null);
+
+  const isCustomAudio = !!(alarm && alarm.audio_source === 'custom' && alarm.audio_local_path);
 
   useEffect(() => {
     try {
@@ -42,15 +51,40 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
     }
 
     try {
-      playAlarmTone(
-        alarm ? alarm.audio_source : 'tone_1',
-        1.0,
-        alarm ? alarm.volume_crescendo : 'off',
-        !!(alarm && alarm.vibrate_override)
-      );
+      if (isCustomAudio) {
+        playCustomAudio(
+          alarm.audio_local_path,
+          alarm.audio_clip_length || 30,
+          1.0,
+          alarm.volume_crescendo || 'off'
+        );
+      } else {
+        playAlarmTone(
+          alarm ? alarm.audio_source : 'tone_1',
+          1.0,
+          alarm ? alarm.volume_crescendo : 'off',
+          !!(alarm && alarm.vibrate_override)
+        );
+      }
     } catch (e) {
       console.error('Audio trigger delayed', e);
     }
+
+    // Drive the equalizer visualizer from the real playing audio.
+    function tickVisualizer() {
+      const data = getAnalyserData();
+      if (data) {
+        const step = Math.floor(data.length / BAR_COUNT) || 1;
+        const levels: number[] = [];
+        for (let i = 0; i < BAR_COUNT; i++) {
+          const v = data[i * step] || 0;
+          levels.push(Math.max(0.08, v / 255));
+        }
+        setBarLevels(levels);
+      }
+      rafRef.current = requestAnimationFrame(tickVisualizer);
+    }
+    rafRef.current = requestAnimationFrame(tickVisualizer);
 
     try {
       vibrationTimerRef.current = vibratePattern(alarm ? alarm.vibration_pattern : 'continuous');
@@ -76,6 +110,8 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
     return () => {
       try {
         stopAlarmTone();
+        stopCustomAudio();
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
         if (vibrationTimerRef.current) {
           stopVibration(vibrationTimerRef.current);
         }
@@ -98,6 +134,7 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
         setMissionState('complete');
         try {
           stopAlarmTone();
+          stopCustomAudio();
           if (vibrationTimerRef.current) stopVibration(vibrationTimerRef.current);
         } catch {
           // no-op
@@ -217,6 +254,7 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
 
     try {
       stopAlarmTone();
+      stopCustomAudio();
       if (vibrationTimerRef.current) stopVibration(vibrationTimerRef.current);
       allowSleep();
     } catch {
@@ -250,6 +288,7 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
 
     try {
       stopAlarmTone();
+      stopCustomAudio();
       if (vibrationTimerRef.current) stopVibration(vibrationTimerRef.current);
       allowSleep();
     } catch {
@@ -287,6 +326,7 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
         setMissionState('complete');
         try {
           stopAlarmTone();
+          stopCustomAudio();
           if (vibrationTimerRef.current) stopVibration(vibrationTimerRef.current);
         } catch {
           // no-op
@@ -305,6 +345,7 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
       setMissionState('complete');
       try {
         stopAlarmTone();
+        stopCustomAudio();
         if (vibrationTimerRef.current) stopVibration(vibrationTimerRef.current);
       } catch {
         // no-op
@@ -318,6 +359,7 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
     setMissionState('complete');
     try {
       stopAlarmTone();
+      stopCustomAudio();
       if (vibrationTimerRef.current) stopVibration(vibrationTimerRef.current);
     } catch {
       // no-op
@@ -329,31 +371,67 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex flex-col items-center justify-center px-6"
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-center px-6 overflow-hidden"
       style={{
-        backgroundColor: 'var(--c-bg)',
+        background: 'radial-gradient(circle at 50% 35%, var(--c-bgTertiary) 0%, var(--c-bg) 70%)',
         paddingTop: 'env(safe-area-inset-top, 0px)',
         paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}
     >
-      <div className="flex flex-col items-center w-full max-w-sm">
-        <div
-          className="w-20 h-20 rounded-full flex items-center justify-center mb-6 animate-pulse"
-          style={{ backgroundColor: 'var(--c-error)', boxShadow: `0 0 40px var(--c-error)` }}
-        >
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
-            <circle cx="12" cy="13" r="9" stroke="#fff" strokeWidth="2" />
-            <path d="M12 8v5l3 3" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
-            <path d="M5 3 2 6M22 6l-3-3" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
-          </svg>
+      {/* Ambient floating particles for a premium, alive feel */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {Array.from({ length: 14 }).map((_, i) => (
+          <span
+            key={i}
+            className="cr-particle"
+            style={{
+              left: `${(i * 137) % 100}%`,
+              animationDelay: `${(i * 0.6) % 6}s`,
+              animationDuration: `${5 + (i % 5)}s`,
+              opacity: 0.15 + (i % 4) * 0.05,
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="flex flex-col items-center w-full max-w-sm relative">
+        <div className="relative w-32 h-32 mb-6 flex items-center justify-center">
+          <span className="cr-ring cr-ring-1" />
+          <span className="cr-ring cr-ring-2" />
+          <span className="cr-ring cr-ring-3" />
+          <div
+            className="w-20 h-20 rounded-full flex items-center justify-center relative z-10"
+            style={{ backgroundColor: 'var(--c-error)', boxShadow: '0 0 50px var(--c-error), 0 0 100px rgba(220,38,38,0.4)' }}
+          >
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="13" r="9" stroke="#fff" strokeWidth="2" />
+              <path d="M12 8v5l3 3" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
+              <path d="M5 3 2 6M22 6l-3-3" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </div>
         </div>
 
         <h1 className="text-4xl font-bold mb-2 text-center" style={{ color: 'var(--c-text)' }}>
           {(alarm && alarm.label) || 'Alarm'}
         </h1>
-        <p className="text-lg mb-8" style={{ color: 'var(--c-textSecondary)' }}>
+        <p className="text-lg mb-4" style={{ color: 'var(--c-textSecondary)' }}>
           {new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
         </p>
+
+        {/* Real audio-reactive equalizer, driven by the actual playing tone / song */}
+        <div className="flex items-end justify-center gap-[3px] h-10 mb-8 w-full max-w-[220px]">
+          {barLevels.map((level, i) => (
+            <span
+              key={i}
+              className="flex-1 rounded-full transition-[height] duration-75 ease-out"
+              style={{
+                height: `${Math.max(8, level * 100)}%`,
+                backgroundColor: 'var(--c-primary)',
+                opacity: 0.5 + level * 0.5,
+              }}
+            />
+          ))}
+        </div>
 
         {missionState === 'active' && alarm && alarm.mission_type === 'math' && currentProblem && (
           <div className="w-full mb-6">

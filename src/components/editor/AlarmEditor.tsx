@@ -8,6 +8,7 @@ import { Toggle } from '@/components/ui/Toggle';
 import { Slider } from '@/components/ui/Slider';
 import { Dropdown } from '@/components/ui/Dropdown';
 import { showToast } from '@/components/ui/Toast';
+import { pickAudioFile, deleteCustomAudio } from '@/lib/customAudio';
 import {
   CalculatorIcon,
   ShakeIcon,
@@ -427,13 +428,42 @@ function SnoozeSection({ form, update }: { form: any; update: (key: string, valu
 }
 
 function AudioSection({ form, update }: { form: any; update: (key: string, value: any) => void }) {
+  const [picking, setPicking] = useState(false);
+  const isCustomSelected = form && form.audio_source === 'custom';
+  const maxClip = form && form.audio_custom_duration ? Math.min(180, Math.round(form.audio_custom_duration)) : 180;
+
+  async function handlePickSong() {
+    setPicking(true);
+    try {
+      const picked = await pickAudioFile();
+      if (!picked) {
+        setPicking(false);
+        return;
+      }
+      // Clean up a previously picked file for this alarm, if any
+      if (form && form.audio_source === 'custom' && form.audio_custom_storage_path) {
+        await deleteCustomAudio(form.audio_custom_storage_path);
+      }
+      update('audio_source', 'custom');
+      update('audio_local_path', picked.uri);
+      update('audio_custom_name', picked.name);
+      update('audio_custom_duration', picked.duration);
+      update('audio_custom_storage_path', picked.storagePath || '');
+      update('audio_clip_length', Math.min(30, Math.max(5, Math.round(picked.duration))));
+    } catch (e) {
+      console.error('Song pick failed', e);
+    } finally {
+      setPicking(false);
+    }
+  }
+
   return (
     <>
       <div>
         <label className="text-sm font-medium mb-2 block" style={{ color: 'var(--c-text)' }}>
           Alarm Tone
         </label>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-2 gap-2 mb-2">
           {ALARM_TONES.map((tone) => {
             const isToneSelected = form && form.audio_source === tone.id;
             return (
@@ -454,6 +484,42 @@ function AudioSection({ form, update }: { form: any; update: (key: string, value
             );
           })}
         </div>
+
+        <button
+          type="button"
+          onClick={handlePickSong}
+          disabled={picking}
+          className="flex items-center gap-2 px-3 py-3 rounded-xl text-xs font-medium transition-all w-full disabled:opacity-60"
+          style={{
+            backgroundColor: isCustomSelected ? 'var(--c-primary)' : 'var(--c-surface)',
+            color: isCustomSelected ? 'var(--c-primaryText)' : 'var(--c-text)',
+            border: `1px dashed ${isCustomSelected ? 'var(--c-primary)' : 'var(--c-border)'}`,
+          }}
+        >
+          <SparklesIcon size={14} color={isCustomSelected ? 'var(--c-primaryText)' : 'var(--c-textSecondary)'} />
+          {picking
+            ? 'Opening gallery...'
+            : isCustomSelected && form.audio_custom_name
+            ? `🎵 ${form.audio_custom_name}`
+            : 'Choose a song from your gallery'}
+        </button>
+
+        {isCustomSelected && (
+          <div className="mt-3 animate-in">
+            <Slider
+              label="Clip length used when ringing"
+              value={typeof form.audio_clip_length === 'number' ? form.audio_clip_length : 30}
+              min={5}
+              max={Math.max(5, maxClip)}
+              step={5}
+              onChange={(v) => update('audio_clip_length', v)}
+              formatValue={(v) => (v >= 60 ? `${Math.floor(v / 60)}m ${v % 60}s` : `${v}s`)}
+            />
+            <p className="text-xs mt-1.5" style={{ color: 'var(--c-textMuted)' }}>
+              Only the first {form.audio_clip_length || 30} seconds of the song will play, looping until you dismiss the alarm.
+            </p>
+          </div>
+        )}
       </div>
 
       <Dropdown

@@ -55,7 +55,12 @@ export function Modal({ open, onClose, title, children, fullScreen }: ModalProps
             </button>
           </div>
         )}
-        <div className="overflow-y-auto flex-1 px-5 py-4">{children}</div>
+        <div
+          className="overflow-y-auto flex-1 px-5 py-4"
+          style={{ paddingBottom: fullScreen ? 'calc(env(safe-area-inset-bottom, 0px) + 24px)' : '16px' }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );
