@@ -11,7 +11,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Pinning to ubuntu-24.04 to prevent breaking changes from Ubuntu 26.04 migration
+    runs-on: ubuntu-24.04
 
     # Secrets ko step-level variables mein use karne ke liye env block banaya gaya hai
     env:
@@ -19,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -27,7 +28,7 @@ jobs:
           node-version: 22
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -71,6 +72,13 @@ jobs:
           cp android-assets/mipmap-anydpi-v26/ic_launcher_round.xml android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
           mkdir -p android/app/src/main/res/values
           cp android-assets/values/ic_launcher_colors.xml android/app/src/main/res/values/ic_launcher_colors.xml
+
+      - name: Resolve Duplicate Android Colors
+        # Fixes: Duplicate resources error between ic_launcher_background.xml and ic_launcher_colors.xml
+        run: |
+          if [ -f android/app/src/main/res/values/ic_launcher_background.xml ]; then
+            rm -f android/app/src/main/res/values/ic_launcher_background.xml
+          fi
 
       - name: Copy custom native assets (notification icon + alarm sound)
         run: |
