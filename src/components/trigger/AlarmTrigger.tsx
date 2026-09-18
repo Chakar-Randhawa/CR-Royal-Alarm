@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Alarm } from '@/types';
 import {
   playAlarmTone,
@@ -9,16 +9,21 @@ import {
   speakBriefing,
 } from '@/lib/audio';
 import { keepScreenAwake, allowSleep } from '@/lib/notifications';
-import { CloseIcon } from '@/components/icons/AlarmIcons'; // Removed Supabase Import entirely to prevent crash
+import { getAlarms, saveAlarms } from '@/lib/storage';
 
 interface AlarmTriggerProps {
   alarm: Alarm;
   onDismiss: () => void;
 }
 
+const SHAKE_THRESHOLDS: Record<string, number> = {
+  gentle: 8,
+  moderate: 13,
+  vigorous: 20,
+};
+
 export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
   const [snoozesUsed, setSnoozesUsed] = useState(0);
-  const [showSnooze, setShowSnooze] = useState(true);
   const [missionState, setMissionState] = useState<'idle' | 'active' | 'complete'>('idle');
   const [shakeCount, setShakeCount] = useState(0);
   const [mathIndex, setMathIndex] = useState(0);
@@ -26,13 +31,14 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
   const [mathProblems, setMathProblems] = useState<{ question: string; answer: number }[]>([]);
   const [pinInput, setPinInput] = useState('');
   const [showPinFallback, setShowPinFallback] = useState(false);
-  const vibrationTimerRef = useRef<any>(null);
+  const vibrationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastAccelRef = useRef({ x: 0, y: 0, z: 0, time: 0 });
 
   useEffect(() => {
     try {
       keepScreenAwake();
     } catch (e) {
-      console.log("Native screen lock bypass active");
+      console.log('Native screen lock bypass active', e);
     }
 
     try {
@@ -43,7 +49,7 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
         !!(alarm && alarm.vibrate_override)
       );
     } catch (e) {
-      console.error("Audio trigger delayed", e);
+      console.error('Audio trigger delayed', e);
     }
 
     try {
@@ -78,16 +84,82 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
         console.log(e);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Real shake detection via DeviceMotion (Android + most WebViews expose this
+  // without needing a permission prompt; iOS Safari 13+ needs explicit
+  // permission which is requested lazily on first mount if available).
+  const registerShake = useCallback(() => {
+    setShakeCount((prev) => {
+      const next = prev + 1;
+      const target = alarm.shake_count || 20;
+      if (next >= target) {
+        setMissionState('complete');
+        try {
+          stopAlarmTone();
+          if (vibrationTimerRef.current) stopVibration(vibrationTimerRef.current);
+        } catch {
+          // no-op
+        }
+      }
+      return next;
+    });
+  }, [alarm.shake_count]);
+
+  useEffect(() => {
+    if (missionState !== 'active' || alarm.mission_type !== 'shake') return;
+
+    const threshold = SHAKE_THRESHOLDS[alarm.shake_intensity] || SHAKE_THRESHOLDS.moderate;
+
+    function handleMotion(e: DeviceMotionEvent) {
+      const acc = e.accelerationIncludingGravity;
+      if (!acc) return;
+      const now = Date.now();
+      if (now - lastAccelRef.current.time < 120) return;
+
+      const deltaX = Math.abs((acc.x || 0) - lastAccelRef.current.x);
+      const deltaY = Math.abs((acc.y || 0) - lastAccelRef.current.y);
+      const deltaZ = Math.abs((acc.z || 0) - lastAccelRef.current.z);
+
+      lastAccelRef.current = { x: acc.x || 0, y: acc.y || 0, z: acc.z || 0, time: now };
+
+      if (deltaX + deltaY + deltaZ > threshold) {
+        registerShake();
+      }
+    }
+
+    // iOS 13+ requires an explicit user-gesture permission request; Android
+    // and older browsers expose the event without one.
+    const DeviceMotionEventTyped = DeviceMotionEvent as unknown as {
+      requestPermission?: () => Promise<'granted' | 'denied'>;
+    };
+    if (typeof DeviceMotionEventTyped.requestPermission === 'function') {
+      DeviceMotionEventTyped
+        .requestPermission()
+        .then((result) => {
+          if (result === 'granted') {
+            window.addEventListener('devicemotion', handleMotion);
+          }
+        })
+        .catch(() => {
+          // permission denied or unsupported — the manual "Simulate Shake" button still works
+        });
+    } else {
+      window.addEventListener('devicemotion', handleMotion);
+    }
+
+    return () => window.removeEventListener('devicemotion', handleMotion);
+  }, [missionState, alarm.mission_type, alarm.shake_intensity, registerShake]);
 
   function generateMathProblems() {
     const problems: { question: string; answer: number }[] = [];
     const count = alarm && typeof alarm.math_count === 'number' ? alarm.math_count : 3;
-    
+
     for (let i = 0; i < count; i++) {
       let a: number, b: number, answer: number, question: string;
       const difficulty = alarm ? alarm.math_difficulty : 'easy';
-      
+
       if (difficulty === 'easy') {
         a = Math.floor(Math.random() * 10) + 1;
         b = Math.floor(Math.random() * 10) + 1;
@@ -118,8 +190,10 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
 
   function canSnooze() {
     if (!alarm) return false;
-    if (typeof alarm.snooze_limit === 'number' && alarm.snooze_limit > 0 && snoozesUsed >= alarm.snooze_limit) return false;
-    return showSnooze;
+    if (typeof alarm.snooze_limit === 'number' && alarm.snooze_limit > 0 && snoozesUsed >= alarm.snooze_limit) {
+      return false;
+    }
+    return true;
   }
 
   function getSnoozeDuration() {
@@ -133,23 +207,21 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
   }
 
   async function handleSnooze() {
-    if (alarm && alarm.snooze_shake_bypass) {
-      if (shakeCount < 5) {
-        setShakeCount((prev) => prev + 1);
-        return;
-      }
+    if (alarm && alarm.snooze_shake_bypass && shakeCount < 5) {
+      setShakeCount((prev) => prev + 1);
+      return;
     }
 
     const duration = getSnoozeDuration();
     setSnoozesUsed((prev) => prev + 1);
-    
+
     try {
       stopAlarmTone();
-      if (vibrationTimerRef.current) {
-        stopVibration(vibrationTimerRef.current);
-      }
+      if (vibrationTimerRef.current) stopVibration(vibrationTimerRef.current);
       allowSleep();
-    } catch (e) {}
+    } catch {
+      // no-op
+    }
 
     const snoozeTime = new Date(Date.now() + duration * 60 * 1000);
     try {
@@ -158,51 +230,47 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
         notifications: [
           {
             id: Math.floor(Math.random() * 100000),
-            title: 'Alarmio Pro',
+            title: 'CR Royal Alarm',
             body: alarm ? alarm.label : 'Alarm ringing',
             schedule: { at: snoozeTime },
             extra: { alarmId: alarm ? alarm.id : '', missionType: alarm ? alarm.mission_type : 'none' },
-            channelId: 'alarmio-alarm',
+            channelId: 'cr_royal_alarm_channel',
           },
         ],
       });
     } catch (e) {
-      console.log("Local notification schedule bypass");
+      console.log('Local notification schedule bypass', e);
     }
 
     onDismiss();
   }
 
   async function handleDismiss() {
-    if (missionState === 'active') {
-      return; 
-    }
+    if (missionState === 'active') return;
 
-        try {
+    try {
       stopAlarmTone();
-      if (vibrationTimerRef.current) {
-        stopVibration(vibrationTimerRef.current);
-      }
+      if (vibrationTimerRef.current) stopVibration(vibrationTimerRef.current);
       allowSleep();
-    } catch (e) {}
+    } catch {
+      // no-op
+    }
 
     if (alarm && alarm.post_dismiss_tts) {
       try {
         speakBriefing();
-      } catch (e) {}
+      } catch {
+        // no-op
+      }
     }
 
-    // 100% OFFLINE LOCAL STORAGE SINGLE ALARM CLEANUP SYSTEM
     if (alarm && alarm.is_one_time && alarm.id) {
       try {
-        const savedAlarms = localStorage.getItem('alarms_pro_list');
-        if (savedAlarms) {
-          const alarmsArray: Alarm[] = JSON.parse(savedAlarms);
-          const filteredAlarms = alarmsArray.filter((a) => a.id !== alarm.id);
-          localStorage.setItem('alarms_pro_list', JSON.stringify(filteredAlarms));
-        }
+        const alarmsArray = getAlarms();
+        const filteredAlarms = alarmsArray.filter((a) => a.id !== alarm.id);
+        saveAlarms(filteredAlarms);
       } catch (error) {
-        console.error("Local clean operation failed on trigger exit:", error);
+        console.error('Local clean operation failed on trigger exit:', error);
       }
     }
 
@@ -219,10 +287,10 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
         setMissionState('complete');
         try {
           stopAlarmTone();
-          if (vibrationTimerRef.current) {
-            stopVibration(vibrationTimerRef.current);
-          }
-        } catch (e) {}
+          if (vibrationTimerRef.current) stopVibration(vibrationTimerRef.current);
+        } catch {
+          // no-op
+        }
       } else {
         setMathIndex(nextIndex);
         setMathAnswer('');
@@ -237,12 +305,22 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
       setMissionState('complete');
       try {
         stopAlarmTone();
-        if (vibrationTimerRef.current) {
-          stopVibration(vibrationTimerRef.current);
-        }
-      } catch (e) {}
+        if (vibrationTimerRef.current) stopVibration(vibrationTimerRef.current);
+      } catch {
+        // no-op
+      }
     } else {
       setPinInput('');
+    }
+  }
+
+  function completeScannerMission() {
+    setMissionState('complete');
+    try {
+      stopAlarmTone();
+      if (vibrationTimerRef.current) stopVibration(vibrationTimerRef.current);
+    } catch {
+      // no-op
     }
   }
 
@@ -261,10 +339,7 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
       <div className="flex flex-col items-center w-full max-w-sm">
         <div
           className="w-20 h-20 rounded-full flex items-center justify-center mb-6 animate-pulse"
-          style={{
-            backgroundColor: 'var(--c-error)',
-            boxShadow: `0 0 40px var(--c-error)`,
-          }}
+          style={{ backgroundColor: 'var(--c-error)', boxShadow: `0 0 40px var(--c-error)` }}
         >
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="13" r="9" stroke="#fff" strokeWidth="2" />
@@ -280,7 +355,6 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
           {new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
         </p>
 
-        {/* Mission UI */}
         {missionState === 'active' && alarm && alarm.mission_type === 'math' && currentProblem && (
           <div className="w-full mb-6">
             <p className="text-sm text-center mb-2" style={{ color: 'var(--c-textMuted)' }}>
@@ -288,10 +362,7 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
             </p>
             <div
               className="rounded-2xl p-6 mb-4 text-center"
-              style={{
-                backgroundColor: 'var(--c-surface)',
-                border: `1px solid var(--c-border)`,
-              }}
+              style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)` }}
             >
               <p className="text-3xl font-bold" style={{ color: 'var(--c-text)' }}>
                 {currentProblem.question} = ?
@@ -312,20 +383,13 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
                 onPaste={(e) => alarm && alarm.math_anti_cheat && e.preventDefault()}
                 placeholder="Answer"
                 className="flex-1 px-4 py-3 rounded-xl text-lg text-center outline-none"
-                style={{
-                  backgroundColor: 'var(--c-surface)',
-                  border: `1px solid var(--c-border)`,
-                  color: 'var(--c-text)',
-                }}
+                style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)`, color: 'var(--c-text)' }}
               />
               <button
                 type="button"
                 onClick={submitMathAnswer}
                 className="px-6 py-3 rounded-xl font-semibold text-sm"
-                style={{
-                  backgroundColor: 'var(--c-primary)',
-                  color: 'var(--c-primaryText)',
-                }}
+                style={{ backgroundColor: 'var(--c-primary)', color: 'var(--c-primaryText)' }}
               >
                 Submit
               </button>
@@ -333,15 +397,12 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
           </div>
         )}
 
-                {missionState === 'active' && alarm && alarm.mission_type === 'shake' && (
+        {missionState === 'active' && alarm && alarm.mission_type === 'shake' && (
           <div className="w-full mb-6 text-center animate-in">
             <p className="text-sm mb-4" style={{ color: 'var(--c-textMuted)' }}>
               Shake your phone {alarm.shake_count || 20} times
             </p>
-            <div
-              className="w-full h-4 rounded-full overflow-hidden mb-3"
-              style={{ backgroundColor: 'var(--c-surface)' }}
-            >
+            <div className="w-full h-4 rounded-full overflow-hidden mb-3" style={{ backgroundColor: 'var(--c-surface)' }}>
               <div
                 className="h-full rounded-full transition-all duration-150"
                 style={{
@@ -355,26 +416,9 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
             </p>
             <button
               type="button"
-              onClick={() => {
-                const targetShakes = alarm.shake_count || 20;
-                const next = shakeCount + 1;
-                setShakeCount(next);
-                if (next >= targetShakes) {
-                  setMissionState('complete');
-                  try {
-                    stopAlarmTone();
-                    if (vibrationTimerRef.current) {
-                      stopVibration(vibrationTimerRef.current);
-                    }
-                  } catch (e) {}
-                }
-              }}
+              onClick={registerShake}
               className="mt-4 px-6 py-3 rounded-xl font-semibold text-sm hover:opacity-80 transition-colors"
-              style={{
-                backgroundColor: 'var(--c-surface)',
-                border: `1px solid var(--c-border)`,
-                color: 'var(--c-text)',
-              }}
+              style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)`, color: 'var(--c-text)' }}
             >
               Simulate Shake
             </button>
@@ -383,15 +427,15 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
 
         {missionState === 'active' && alarm && alarm.mission_type === 'scanner' && (
           <div className="w-full mb-6 text-center animate-in">
-            <div
-              className="rounded-2xl p-8 mb-4"
-              style={{
-                backgroundColor: 'var(--c-surface)',
-                border: `1px solid var(--c-border)`,
-              }}
-            >
+            <div className="rounded-2xl p-8 mb-4" style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)` }}>
               <svg width="64" height="64" viewBox="0 0 24 24" fill="none" className="mx-auto mb-3">
-                <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" stroke="var(--c-primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path
+                  d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"
+                  stroke="var(--c-primary)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
                 <path d="M7 12h10" stroke="var(--c-primary)" strokeWidth="2" strokeLinecap="round" />
               </svg>
               <p className="text-sm" style={{ color: 'var(--c-textSecondary)' }}>
@@ -400,20 +444,9 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
             </div>
             <button
               type="button"
-              onClick={() => {
-                setMissionState('complete');
-                try {
-                  stopAlarmTone();
-                  if (vibrationTimerRef.current) {
-                    stopVibration(vibrationTimerRef.current);
-                  }
-                } catch (e) {}
-              }}
+              onClick={completeScannerMission}
               className="px-6 py-3 rounded-xl font-semibold text-sm mb-2 w-full"
-              style={{
-                backgroundColor: 'var(--c-primary)',
-                color: 'var(--c-primaryText)',
-              }}
+              style={{ backgroundColor: 'var(--c-primary)', color: 'var(--c-primaryText)' }}
             >
               Simulate Scan
             </button>
@@ -436,21 +469,13 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
                   onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))}
                   placeholder="Enter PIN"
                   className="flex-1 px-4 py-3 rounded-xl text-sm text-center outline-none"
-                  style={{
-                    backgroundColor: 'var(--c-surface)',
-                    border: `1px solid var(--c-border)`,
-                    color: 'var(--c-text)',
-                  }}
+                  style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)`, color: 'var(--c-text)' }}
                 />
                 <button
                   type="button"
                   onClick={submitPin}
                   className="px-4 py-3 rounded-xl font-semibold text-sm"
-                  style={{
-                    backgroundColor: 'var(--c-surface)',
-                    border: `1px solid var(--c-border)`,
-                    color: 'var(--c-text)',
-                  }}
+                  style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)`, color: 'var(--c-text)' }}
                 >
                   Enter
                 </button>
@@ -458,24 +483,20 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
             )}
           </div>
         )}
-        {missionComplete && (
+
+        {missionState === 'complete' && (
           <p className="text-sm mb-6 font-medium animate-in" style={{ color: 'var(--c-success)' }}>
-            {missionState === 'complete' ? 'Mission complete! You can dismiss now.' : ''}
+            Mission complete! You can dismiss now.
           </p>
         )}
 
-        {/* Action buttons with layout integration safety */}
         <div className="flex gap-3 w-full">
           {canSnooze() && (
             <button
               type="button"
               onClick={handleSnooze}
               className="flex-1 py-4 rounded-2xl font-semibold text-sm transition-all hover:opacity-80 active:scale-95"
-              style={{
-                backgroundColor: 'var(--c-surface)',
-                border: `1px solid var(--c-border)`,
-                color: 'var(--c-text)',
-              }}
+              style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)`, color: 'var(--c-text)' }}
             >
               {alarm && alarm.snooze_shake_bypass && shakeCount < 5
                 ? `Shake to snooze (${shakeCount}/5)`
@@ -487,10 +508,7 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
             onClick={handleDismiss}
             disabled={!missionComplete}
             className="flex-1 py-4 rounded-2xl font-semibold text-sm transition-all hover:opacity-80 active:scale-95 disabled:opacity-40"
-            style={{
-              backgroundColor: 'var(--c-error)',
-              color: '#fff',
-            }}
+            style={{ backgroundColor: 'var(--c-error)', color: '#fff' }}
           >
             Dismiss
           </button>

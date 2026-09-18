@@ -25,21 +25,15 @@ export function Slider({ value, min, max, step = 1, onChange, label, formatValue
           )}
         </div>
       )}
-      <div className="relative">
-        <div
-          className="h-2 rounded-full"
-          style={{ backgroundColor: 'var(--c-border)' }}
-        >
+      <div className="relative py-2">
+        <div className="h-2 rounded-full" style={{ backgroundColor: 'var(--c-border)' }}>
           <div
             className="h-2 rounded-full transition-all duration-150"
-            style={{
-              width: `${percentage}%`,
-              backgroundColor: 'var(--c-primary)',
-            }}
+            style={{ width: `${percentage}%`, backgroundColor: 'var(--c-primary)' }}
           />
         </div>
         <div
-          className="absolute top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border-2 transition-all duration-150"
+          className="absolute top-1/2 -translate-y-1/2 w-5 h-5 rounded-full border-2 transition-all duration-150 pointer-events-none"
           style={{
             left: `calc(${percentage}% - 10px)`,
             backgroundColor: 'var(--c-surface)',
@@ -53,7 +47,7 @@ export function Slider({ value, min, max, step = 1, onChange, label, formatValue
           step={step}
           value={value}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="absolute inset-0 w-full opacity-0 cursor-pointer"
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
         />
       </div>
     </div>

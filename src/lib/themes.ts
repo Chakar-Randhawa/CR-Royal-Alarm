@@ -111,7 +111,7 @@ export const themes: Record<ThemeId, Theme> = {
   },
   crimson: {
     id: 'crimson',
-    name: 'Cyber Punk Crimson',
+    name: 'Royal Crimson',
     description: 'High-contrast industrial dark-red',
     colors: {
       bg: '#0d0d0d',

@@ -45,9 +45,7 @@ export interface Alarm {
 }
 
 export interface AppSettings {
-  id: string;
   theme: ThemeId;
-  onboarding_completed: boolean;
   default_snooze_duration: number;
   default_vibration_pattern: VibrationPattern;
   default_audio_source: string;

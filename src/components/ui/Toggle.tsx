@@ -19,18 +19,12 @@ export function Toggle({ checked, onChange, label, description, disabled }: Togg
       {(label || description) && (
         <div className="flex-1 text-left">
           {label && (
-            <p
-              className="text-sm font-medium"
-              style={{ color: 'var(--c-text)' }}
-            >
+            <p className="text-sm font-medium" style={{ color: 'var(--c-text)' }}>
               {label}
             </p>
           )}
           {description && (
-            <p
-              className="text-xs mt-0.5"
-              style={{ color: 'var(--c-textMuted)' }}
-            >
+            <p className="text-xs mt-0.5" style={{ color: 'var(--c-textMuted)' }}>
               {description}
             </p>
           )}

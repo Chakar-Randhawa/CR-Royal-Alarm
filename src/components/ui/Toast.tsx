@@ -1,22 +1,26 @@
 import { useEffect, useState } from 'react';
 
+type ToastType = 'default' | 'success' | 'error';
+
 interface ToastState {
+  id: number;
   message: string;
+  type: ToastType;
   visible: boolean;
 }
 
-let toastSetter: ((message: string) => void) | null = null;
+let toastSetter: ((message: string, type: ToastType) => void) | null = null;
 
-export function showToast(message: string) {
-  if (toastSetter) toastSetter(message);
+export function showToast(message: string, type: ToastType = 'default') {
+  if (toastSetter) toastSetter(message, type);
 }
 
 export function ToastContainer() {
-  const [toast, setToast] = useState<ToastState>({ message: '', visible: false });
+  const [toast, setToast] = useState<ToastState>({ id: 0, message: '', type: 'default', visible: false });
 
   useEffect(() => {
-    toastSetter = (message: string) => {
-      setToast({ message, visible: true });
+    toastSetter = (message: string, type: ToastType) => {
+      setToast({ id: Date.now(), message, type, visible: true });
     };
     return () => {
       toastSetter = null;
@@ -30,15 +34,19 @@ export function ToastContainer() {
       }, 3000);
       return () => clearTimeout(timer);
     }
-  }, [toast.visible]);
+  }, [toast.visible, toast.id]);
 
   if (!toast.visible) return null;
 
+  const borderColor =
+    toast.type === 'success' ? 'var(--c-success)' : toast.type === 'error' ? 'var(--c-error)' : 'var(--c-border)';
+
   return (
-    <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-3 rounded-2xl shadow-2xl animate-in"
+    <div
+      className="fixed bottom-20 left-1/2 -translate-x-1/2 z-[60] px-4 py-3 rounded-2xl shadow-2xl animate-in"
       style={{
         backgroundColor: 'var(--c-surface)',
-        border: `1px solid var(--c-border)`,
+        border: `1px solid ${borderColor}`,
         maxWidth: '90vw',
       }}
     >

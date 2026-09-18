@@ -19,12 +19,10 @@ interface AlarmCardProps {
 }
 
 export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps) {
-  // Safe validation check for internal arrays to prevent null pointer exceptions
   const activeDays = Array.isArray(alarm?.days_of_week) ? alarm.days_of_week : [];
-  
+
   const nextTime = alarm && alarm.enabled ? getNextAlarmTime(alarm) : null;
   const countdown = nextTime ? formatCountdown(nextTime) : '';
-  const isRepeating = activeDays.length > 0;
 
   function getMissionIcon() {
     if (!alarm) return null;
@@ -45,21 +43,15 @@ export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps)
     if (alarm.is_one_time) return 'One-time';
     if (activeDays.length === 0) return 'Once';
     if (activeDays.length === 7) return 'Every day';
-    
-    if (
-      activeDays.length === 5 &&
-      [1, 2, 3, 4, 5].every((d) => activeDays.includes(d))
-    )
+
+    if (activeDays.length === 5 && [1, 2, 3, 4, 5].every((d) => activeDays.includes(d))) {
       return 'Weekdays';
-      
-    if (
-      activeDays.length === 2 &&
-      activeDays.includes(0) &&
-      activeDays.includes(6)
-    )
+    }
+
+    if (activeDays.length === 2 && activeDays.includes(0) && activeDays.includes(6)) {
       return 'Weekends';
-      
-    // Shallow copy array before running sort modifier to avoid mutating original state model
+    }
+
     return [...activeDays]
       .sort((a, b) => a - b)
       .map((d) => DAYS_OF_WEEK[d] || '')
@@ -81,47 +73,32 @@ export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps)
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2">
-            <span
-              className="text-3xl font-bold tabular-nums tracking-tight"
-              style={{ color: 'var(--c-text)' }}
-            >
+            <span className="text-3xl font-bold tabular-nums tracking-tight" style={{ color: 'var(--c-text)' }}>
               {formatTime(alarm.hour || 0, alarm.minute || 0)}
             </span>
             {alarm.enabled && countdown && (
               <span
                 className="text-xs font-medium px-2 py-0.5 rounded-full"
-                style={{
-                  backgroundColor: 'var(--c-bgTertiary)',
-                  color: 'var(--c-accent)',
-                }}
+                style={{ backgroundColor: 'var(--c-bgTertiary)', color: 'var(--c-accent)' }}
               >
                 {countdown}
               </span>
             )}
           </div>
-          <p
-            className="text-sm mt-1 truncate"
-            style={{ color: 'var(--c-textSecondary)' }}
-          >
+          <p className="text-sm mt-1 truncate" style={{ color: 'var(--c-textSecondary)' }}>
             {alarm.label || 'Alarm'}
           </p>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <span
               className="text-xs px-2 py-1 rounded-md"
-              style={{
-                backgroundColor: 'var(--c-bgTertiary)',
-                color: 'var(--c-textMuted)',
-              }}
+              style={{ backgroundColor: 'var(--c-bgTertiary)', color: 'var(--c-textMuted)' }}
             >
               {getDayLabel()}
             </span>
             {getMissionIcon() && (
               <span
                 className="flex items-center gap-1 text-xs px-2 py-1 rounded-md capitalize"
-                style={{
-                  backgroundColor: 'var(--c-bgTertiary)',
-                  color: 'var(--c-textSecondary)',
-                }}
+                style={{ backgroundColor: 'var(--c-bgTertiary)', color: 'var(--c-textSecondary)' }}
               >
                 {getMissionIcon()}
                 {alarm.mission_type}
@@ -130,10 +107,7 @@ export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps)
             {alarm.is_one_time && (
               <span
                 className="flex items-center gap-1 text-xs px-2 py-1 rounded-md"
-                style={{
-                  backgroundColor: 'var(--c-bgTertiary)',
-                  color: 'var(--c-warning)',
-                }}
+                style={{ backgroundColor: 'var(--c-bgTertiary)', color: 'var(--c-warning)' }}
               >
                 <ClockIcon size={12} color="var(--c-warning)" />
                 Auto-delete
@@ -158,7 +132,7 @@ export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps)
               className="p-2 rounded-lg transition-colors hover:opacity-70"
               style={{ backgroundColor: 'var(--c-error)' }}
             >
-              <TrashIcon size={16} color="var(--c-error)" />
+              <TrashIcon size={16} color="#fff" />
             </button>
           </div>
         </div>

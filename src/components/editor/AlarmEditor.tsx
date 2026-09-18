@@ -2,20 +2,19 @@ import { useState, useEffect } from 'react';
 import type { Alarm, MissionType, MathDifficulty, ShakeIntensity, VibrationPattern, VolumeCrescendo, FadeOut } from '@/types';
 import { defaultAlarmValues, DAYS_OF_WEEK, ALARM_TONES } from '@/types';
 import { scheduleAlarm, cancelAlarm } from '@/lib/notifications';
+import { getAlarms, saveAlarms } from '@/lib/storage';
 import { Modal } from '@/components/ui/Modal';
 import { Toggle } from '@/components/ui/Toggle';
 import { Slider } from '@/components/ui/Slider';
 import { Dropdown } from '@/components/ui/Dropdown';
+import { showToast } from '@/components/ui/Toast';
 import {
   CalculatorIcon,
   ShakeIcon,
   ScanIcon,
   VolumeIcon,
-  VibrateIcon,
   ClockIcon,
-  CalendarIcon,
   HeadphonesIcon,
-  PowerIcon,
   SparklesIcon,
   RefreshIcon,
 } from '@/components/icons/AlarmIcons';
@@ -28,9 +27,10 @@ interface AlarmEditorProps {
 }
 
 type SectionKey = 'schedule' | 'mission' | 'snooze' | 'audio' | 'interface';
+type FormState = Alarm | (typeof defaultAlarmValues & { id?: string });
 
 export function AlarmEditor({ open, alarm, onClose, onSaved }: AlarmEditorProps) {
-  const [form, setForm] = useState<Alarm | (typeof defaultAlarmValues & { id?: string })>(defaultAlarmValues);
+  const [form, setForm] = useState<FormState>(defaultAlarmValues);
   const [activeSection, setActiveSection] = useState<SectionKey | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -43,55 +43,59 @@ export function AlarmEditor({ open, alarm, onClose, onSaved }: AlarmEditorProps)
     setActiveSection(null);
   }, [alarm, open]);
 
-  function update<K extends keyof typeof form>(key: K, value: (typeof form)[K]) {
+  function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   function toggleDay(day: number) {
     const current = (form.days_of_week as number[]) || [];
-    update('days_of_week', current.includes(day) ? current.filter((d) => d !== day) : [...current, day]);
+    update(
+      'days_of_week',
+      (current.includes(day) ? current.filter((d) => d !== day) : [...current, day]) as FormState['days_of_week']
+    );
   }
 
-  // 100% OFFLINE DISK PERSISTENCE SAVE ALGORITHM
+  // 100% offline save: alarms live entirely in local storage.
   async function save() {
+    if (saving) return;
     setSaving(true);
     try {
-      const savedAlarms = localStorage.getItem('alarms_pro_list');
-      let alarmsArray: Alarm[] = savedAlarms ? JSON.parse(savedAlarms) : [];
+      const alarmsArray = getAlarms();
 
       if (alarm && alarm.id) {
-        // EDIT MODE: Update existing entry in local storage array
         const updatedAlarm: Alarm = {
-          ...form,
+          ...(form as Alarm),
           id: alarm.id,
-          updated_at: new Date().toISOString()
-        } as Alarm;
+          updated_at: new Date().toISOString(),
+        };
 
-        alarmsArray = alarmsArray.map((a) => (a.id === alarm.id ? updatedAlarm : a));
-        localStorage.setItem('alarms_pro_list', JSON.stringify(alarmsArray));
+        const updatedList = alarmsArray.map((a) => (a.id === alarm.id ? updatedAlarm : a));
+        saveAlarms(updatedList);
 
         await cancelAlarm(alarm.id);
-        if (form.enabled) {
+        if (updatedAlarm.enabled) {
           await scheduleAlarm(updatedAlarm);
         }
+        showToast('Alarm updated', 'success');
       } else {
-        // CREATE MODE: Generate a unique ID locally and insert new entry
         const uniqueId = 'alarm_' + Date.now();
         const newAlarm: Alarm = {
-          ...form,
+          ...(form as Alarm),
           id: uniqueId,
-          enabled: true, // Default on when newly created
+          enabled: true,
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        } as Alarm;
+          updated_at: new Date().toISOString(),
+        };
 
-        alarmsArray.unshift(newAlarm); // Push to the top of the dashboard list
-        localStorage.setItem('alarms_pro_list', JSON.stringify(alarmsArray));
+        alarmsArray.unshift(newAlarm);
+        saveAlarms(alarmsArray);
 
         await scheduleAlarm(newAlarm);
+        showToast('Alarm created', 'success');
       }
     } catch (error) {
-      console.error("Local storage save operation failed:", error);
+      console.error('Local storage save operation failed:', error);
+      showToast('Failed to save alarm', 'error');
     } finally {
       setSaving(false);
       onSaved();
@@ -114,7 +118,7 @@ export function AlarmEditor({ open, alarm, onClose, onSaved }: AlarmEditorProps)
     { value: 'scanner', label: 'Scanner', icon: <ScanIcon size={16} color="var(--c-text)" /> },
   ];
 
-    return (
+  return (
     <Modal open={open} onClose={onClose} title={alarm ? 'Edit Alarm' : 'New Alarm'} fullScreen>
       <div className="space-y-5">
         {/* Label */}
@@ -125,14 +129,10 @@ export function AlarmEditor({ open, alarm, onClose, onSaved }: AlarmEditorProps)
           <input
             type="text"
             value={(form.label as string) || ''}
-            onChange={(e) => update('label', e.target.value)}
+            onChange={(e) => update('label', e.target.value as FormState['label'])}
             placeholder="Alarm name"
             className="w-full px-4 py-3 rounded-xl text-sm outline-none"
-            style={{
-              backgroundColor: 'var(--c-surface)',
-              border: `1px solid var(--c-border)`,
-              color: 'var(--c-text)',
-            }}
+            style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)`, color: 'var(--c-text)' }}
           />
         </div>
 
@@ -144,31 +144,26 @@ export function AlarmEditor({ open, alarm, onClose, onSaved }: AlarmEditorProps)
           <div className="flex items-center gap-2">
             <div
               className="flex-1 rounded-2xl p-4 flex items-center justify-center"
-              style={{
-                backgroundColor: 'var(--c-surface)',
-                border: `1px solid var(--c-border)`,
-              }}
+              style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)` }}
             >
               <input
                 type="number"
                 min={0}
                 max={23}
                 value={form.hour !== undefined ? form.hour : 6}
-                onChange={(e) =>
-                  update('hour', Math.max(0, Math.min(23, parseInt(e.target.value) || 0)))
-                }
+                onChange={(e) => update('hour', Math.max(0, Math.min(23, parseInt(e.target.value) || 0)) as FormState['hour'])}
                 className="w-16 bg-transparent text-center text-4xl font-bold tabular-nums outline-none"
                 style={{ color: 'var(--c-text)' }}
               />
-              <span className="text-4xl font-bold mx-1" style={{ color: 'var(--c-textMuted)' }}>:</span>
+              <span className="text-4xl font-bold mx-1" style={{ color: 'var(--c-textMuted)' }}>
+                :
+              </span>
               <input
                 type="number"
                 min={0}
                 max={59}
                 value={form.minute !== undefined ? form.minute : 0}
-                onChange={(e) =>
-                  update('minute', Math.max(0, Math.min(59, parseInt(e.target.value) || 0)))
-                }
+                onChange={(e) => update('minute', Math.max(0, Math.min(59, parseInt(e.target.value) || 0)) as FormState['minute'])}
                 className="w-16 bg-transparent text-center text-4xl font-bold tabular-nums outline-none"
                 style={{ color: 'var(--c-text)' }}
               />
@@ -176,7 +171,7 @@ export function AlarmEditor({ open, alarm, onClose, onSaved }: AlarmEditorProps)
           </div>
         </div>
 
-        {/* Repeat Days with Fallback Protection */}
+        {/* Repeat Days */}
         <div>
           <label className="text-sm font-medium mb-2 block" style={{ color: 'var(--c-text)' }}>
             Repeat
@@ -202,34 +197,29 @@ export function AlarmEditor({ open, alarm, onClose, onSaved }: AlarmEditorProps)
             })}
           </div>
           <p className="text-xs mt-2" style={{ color: 'var(--c-textMuted)' }}>
-            {!Array.isArray(form.days_of_week) || (form.days_of_week as number[]).length === 0 
-              ? 'One-time alarm' 
+            {!Array.isArray(form.days_of_week) || (form.days_of_week as number[]).length === 0
+              ? 'One-time alarm'
               : `${(form.days_of_week as number[]).length} day(s) selected`}
           </p>
         </div>
 
-                {/* One-time toggle with strict boolean mapping */}
+        {/* One-time toggle */}
         <Toggle
           checked={!!form.is_one_time}
-          onChange={(v) => update('is_one_time', v)}
+          onChange={(v) => update('is_one_time', v as FormState['is_one_time'])}
           label="One-time alarm"
           description="Auto-delete after firing"
         />
 
-        {/* Section toggles with layout protection */}
+        {/* Collapsible sections */}
         <div className="space-y-2">
           {sections.map((section) => (
             <div key={section.key}>
               <button
                 type="button"
-                onClick={() =>
-                  setActiveSection(activeSection === section.key ? null : section.key)
-                }
+                onClick={() => setActiveSection(activeSection === section.key ? null : section.key)}
                 className="flex items-center justify-between w-full p-3.5 rounded-xl transition-colors hover:opacity-80"
-                style={{
-                  backgroundColor: 'var(--c-surface)',
-                  border: `1px solid var(--c-border)`,
-                }}
+                style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)` }}
               >
                 <div className="flex items-center gap-3">
                   {section.icon}
@@ -237,10 +227,7 @@ export function AlarmEditor({ open, alarm, onClose, onSaved }: AlarmEditorProps)
                     {section.label}
                   </span>
                 </div>
-                <span
-                  className="text-xs"
-                  style={{ color: 'var(--c-textMuted)' }}
-                >
+                <span className="text-xs" style={{ color: 'var(--c-textMuted)' }}>
                   {activeSection === section.key ? 'Hide' : 'Show'}
                 </span>
               </button>
@@ -248,42 +235,28 @@ export function AlarmEditor({ open, alarm, onClose, onSaved }: AlarmEditorProps)
               {activeSection === section.key && (
                 <div
                   className="mt-2 p-4 rounded-xl space-y-4"
-                  style={{
-                    backgroundColor: 'var(--c-bgTertiary)',
-                    border: `1px solid var(--c-border)`,
-                  }}
+                  style={{ backgroundColor: 'var(--c-bgTertiary)', border: `1px solid var(--c-border)` }}
                 >
                   {section.key === 'mission' && (
-                    <MissionSection form={form} update={(k, v) => update(k as any, v)} missionTypes={missionTypes} />
+                    <MissionSection form={form} update={(k, v) => update(k as keyof FormState, v)} missionTypes={missionTypes} />
                   )}
-                  {section.key === 'snooze' && (
-                    <SnoozeSection form={form} update={(k, v) => update(k as any, v)} />
-                  )}
-                  {section.key === 'audio' && (
-                    <AudioSection form={form} update={(k, v) => update(k as any, v)} />
-                  )}
-                  {section.key === 'schedule' && (
-                    <ScheduleSection form={form} update={(k, v) => update(k as any, v)} />
-                  )}
-                  {section.key === 'interface' && (
-                    <InterfaceSection form={form} update={(k, v) => update(k as any, v)} />
-                  )}
+                  {section.key === 'snooze' && <SnoozeSection form={form} update={(k, v) => update(k as keyof FormState, v)} />}
+                  {section.key === 'audio' && <AudioSection form={form} update={(k, v) => update(k as keyof FormState, v)} />}
+                  {section.key === 'schedule' && <ScheduleSection form={form} update={(k, v) => update(k as keyof FormState, v)} />}
+                  {section.key === 'interface' && <InterfaceSection form={form} update={(k, v) => update(k as keyof FormState, v)} />}
                 </div>
               )}
             </div>
           ))}
         </div>
 
-        {/* Local Framework Save Button */}
+        {/* Save Button */}
         <button
           type="button"
           onClick={save}
           disabled={saving}
           className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all hover:opacity-90 active:scale-[0.98] disabled:opacity-50"
-          style={{
-            backgroundColor: 'var(--c-primary)',
-            color: 'var(--c-primaryText)',
-          }}
+          style={{ backgroundColor: 'var(--c-primary)', color: 'var(--c-primaryText)' }}
         >
           {saving ? 'Saving...' : alarm ? 'Update Alarm' : 'Create Alarm'}
         </button>
@@ -301,8 +274,7 @@ function MissionSection({
   update: (key: string, value: any) => void;
   missionTypes: { value: MissionType; label: string; icon: React.ReactNode }[];
 }) {
-
-    return (
+  return (
     <>
       <div>
         <label className="text-sm font-medium mb-2 block" style={{ color: 'var(--c-text)' }}>
@@ -406,43 +378,16 @@ function MissionSection({
               onChange={(e) => update('scanner_skip_pin', e.target.value.replace(/\D/g, ''))}
               placeholder="Enter 4-6 digit PIN"
               className="w-full px-4 py-3 rounded-xl text-sm outline-none"
-              style={{
-                backgroundColor: 'var(--c-surface)',
-                border: `1px solid var(--c-border)`,
-                color: 'var(--c-text)',
-              }}
-                      </div>
-          <button
-            type="button"
-            onClick={() => {
-              // Local production camera mock barcode simulator logic
-              const mockBarcode = 'BARCODE_' + Math.floor(100000 + Math.random() * 900000);
-              update('scanner_skip_pin', mockBarcode); 
-              showToast("New Barcode Code Mock Registered Locally!");
-            }}
-            className="flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-colors hover:opacity-80"
-            style={{
-              backgroundColor: 'var(--c-surface)',
-              border: `1px solid var(--c-border)`,
-              color: 'var(--c-text)',
-            }}
-          >
-            <ScanIcon size={18} color="var(--c-primary)" />
-            Register New Barcode
-          </button>
+              style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)`, color: 'var(--c-text)' }}
+            />
+          </div>
         </>
       )}
     </>
   );
 }
 
-function SnoozeSection({
-  form,
-  update,
-}: {
-  form: any;
-  update: (key: string, value: any) => void;
-}) {
+function SnoozeSection({ form, update }: { form: any; update: (key: string, value: any) => void }) {
   return (
     <>
       <Dropdown
@@ -481,13 +426,7 @@ function SnoozeSection({
   );
 }
 
-function AudioSection({
-  form,
-  update,
-}: {
-  form: any;
-  update: (key: string, value: any) => void;
-}) {
+function AudioSection({ form, update }: { form: any; update: (key: string, value: any) => void }) {
   return (
     <>
       <div>
@@ -517,48 +456,6 @@ function AudioSection({
         </div>
       </div>
 
-      <div>
-        <label className="text-sm font-medium mb-2 block" style={{ color: 'var(--c-text)' }}>
-          Custom Spotify Track URL
-        </label>
-        <input
-          type="text"
-          value={(form && (form.audio_custom_url as string)) || ''}
-          onChange={(e) => update('audio_custom_url', e.target.value)}
-          placeholder="https://open.spotify.com/track/..."
-          className="w-full px-4 py-3 rounded-xl text-sm outline-none"
-          style={{
-            backgroundColor: 'var(--c-surface)',
-            border: `1px solid var(--c-border)`,
-            color: 'var(--c-text)',
-          }}
-        />
-      </div>
-
-           <div>
-        <label className="text-sm font-medium mb-2 block" style={{ color: 'var(--c-text)' }}>
-          Custom Local Audio File
-        </label>
-        <button
-          type="button"
-          onClick={() => {
-            // Local fallback audio picker simulator
-            const mockPath = 'internal_storage/alarms/custom_track_' + Math.floor(100 + Math.random() * 900) + '.mp3';
-            update('audio_local_path', mockPath);
-            showToast("Local Audio File Paths Registered Successfully!");
-          }}
-          className="flex items-center gap-2 w-full px-4 py-3 rounded-xl text-sm transition-colors hover:opacity-80 animate-in"
-          style={{
-            backgroundColor: 'var(--c-surface)',
-            border: `1px solid var(--c-border)`,
-            color: form && form.audio_local_path ? 'var(--c-text)' : 'var(--c-textMuted)',
-          }}
-        >
-          <HeadphonesIcon size={18} color="var(--c-textSecondary)" />
-          {(form && form.audio_local_path) || 'Browse local audio files...'}
-        </button>
-      </div>
-
       <Dropdown
         label="Volume Crescendo"
         value={form && form.volume_crescendo ? form.volume_crescendo : 'off'}
@@ -576,7 +473,7 @@ function AudioSection({
         checked={!!(form && form.vibrate_override)}
         onChange={(v) => update('vibrate_override', v)}
         label="Play in Silent/Vibrate Mode"
-        description="Overrides system mute via STREAM_ALARM"
+        description="Attempts to play the alarm even if the phone is muted"
       />
 
       <Dropdown
@@ -607,13 +504,7 @@ function AudioSection({
   );
 }
 
-function ScheduleSection({
-  form,
-  update,
-}: {
-  form: any;
-  update: (key: string, value: any) => void;
-}) {
+function ScheduleSection({ form, update }: { form: any; update: (key: string, value: any) => void }) {
   return (
     <>
       <Toggle
@@ -637,23 +528,15 @@ function ScheduleSection({
               e.target.value = '';
             }}
             className="w-full px-4 py-3 rounded-xl text-sm outline-none"
-            style={{
-              backgroundColor: 'var(--c-surface)',
-              border: `1px solid var(--c-border)`,
-              color: 'var(--c-text)',
-            }}
-                   />
+            style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)`, color: 'var(--c-text)' }}
+          />
           {form && Array.isArray(form.holiday_dates) && form.holiday_dates.length > 0 && (
             <div className="flex flex-wrap gap-2 mt-2 animate-in">
               {form.holiday_dates.map((date: string, i: number) => (
                 <span
                   key={i}
                   className="flex items-center gap-1 text-xs px-2 py-1 rounded-md border"
-                  style={{
-                    backgroundColor: 'var(--c-surface)',
-                    borderColor: 'var(--c-border)',
-                    color: 'var(--c-textSecondary)',
-                  }}
+                  style={{ backgroundColor: 'var(--c-surface)', borderColor: 'var(--c-border)', color: 'var(--c-textSecondary)' }}
                 >
                   {date}
                   <button
@@ -684,13 +567,7 @@ function ScheduleSection({
   );
 }
 
-function InterfaceSection({
-  form,
-  update,
-}: {
-  form: any;
-  update: (key: string, value: any) => void;
-}) {
+function InterfaceSection({ form, update }: { form: any; update: (key: string, value: any) => void }) {
   return (
     <>
       <Toggle
@@ -702,8 +579,8 @@ function InterfaceSection({
       <Toggle
         checked={!!(form && form.post_dismiss_tts)}
         onChange={(v) => update('post_dismiss_tts', v)}
-        label="Post-Dismiss AI-Style Briefing"
-        description="Text-to-Speech reads greeting, time, weather, and motivational quote"
+        label="Post-Dismiss Voice Briefing"
+        description="Text-to-speech reads a greeting, time, date and motivational quote"
       />
     </>
   );

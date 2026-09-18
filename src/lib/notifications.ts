@@ -2,6 +2,9 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import type { Alarm } from '@/types';
 
+export const ALARM_CHANNEL_ID = 'cr_royal_alarm_channel';
+const APP_NAME = 'CR Royal Alarm';
+
 export async function requestNotificationPermission(): Promise<boolean> {
   try {
     const perm = await LocalNotifications.checkPermissions();
@@ -36,7 +39,7 @@ export async function scheduleAlarm(alarm: Alarm): Promise<number | null> {
 
         notifications.push({
           id: hashId(alarm.id + '_' + day),
-          title: 'Alarmio Pro',
+          title: APP_NAME,
           body: alarm.label,
           schedule: {
             at: dayDate,
@@ -46,19 +49,19 @@ export async function scheduleAlarm(alarm: Alarm): Promise<number | null> {
           extra: { alarmId: alarm.id, missionType: alarm.mission_type },
           smallIcon: 'ic_alarm',
           largeIcon: 'ic_alarm',
-          channelId: 'alarmio-alarm',
+          channelId: ALARM_CHANNEL_ID,
         });
       }
     } else {
       notifications.push({
         id: hashId(alarm.id),
-        title: 'Alarmio Pro',
+        title: APP_NAME,
         body: alarm.label,
         schedule: { at: target },
         extra: { alarmId: alarm.id, missionType: alarm.mission_type },
         smallIcon: 'ic_alarm',
         largeIcon: 'ic_alarm',
-        channelId: 'alarmio-alarm',
+        channelId: ALARM_CHANNEL_ID,
       });
     }
 
@@ -66,7 +69,8 @@ export async function scheduleAlarm(alarm: Alarm): Promise<number | null> {
 
     await LocalNotifications.schedule({ notifications });
     return notifications[0].id;
-  } catch {
+  } catch (e) {
+    console.error('Failed to schedule alarm', e);
     return null;
   }
 }
@@ -81,7 +85,7 @@ export async function cancelAlarm(alarmId: string): Promise<void> {
       await LocalNotifications.cancel({ notifications: ids.map((id) => ({ id })) });
     }
   } catch {
-    // no-op
+    // no pending notifications / not on native platform, ignore
   }
 }
 
@@ -101,16 +105,16 @@ export async function cancelAllAlarms(): Promise<void> {
 export async function createAlarmChannel(): Promise<void> {
   try {
     await LocalNotifications.createChannel({
-      id: 'alarmio-alarm',
-      name: 'Alarmio Pro Alarms',
+      id: ALARM_CHANNEL_ID,
+      name: 'CR Royal Alarms',
       description: 'High-priority alarm notifications',
       importance: 5,
       visibility: 1,
-      sound: 'alarm_tone.wav',
+      sound: 'alarm_tone', // resource name only, no extension (android/res/raw/alarm_tone.wav)
       vibration: true,
     });
   } catch {
-    // no-op
+    // no-op (web preview / unsupported platform)
   }
 }
 

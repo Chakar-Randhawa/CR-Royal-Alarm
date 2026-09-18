@@ -39,7 +39,7 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
           </svg>
         </div>
         <h1 className="text-2xl font-bold tracking-tight" style={{ color: 'var(--c-text)' }}>
-          Alarmio Pro
+          CR Royal Alarm
         </h1>
         <div className="mt-4 flex gap-1">
           {[0, 1, 2].map((i) => (

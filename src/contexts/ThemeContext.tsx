@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from 'react';
 import { themes, type themes as themeMap } from '@/lib/themes';
+import { getSettings, saveSettings } from '@/lib/storage';
 import type { ThemeId, ThemeColors } from '@/types';
 
 interface ThemeContextValue {
@@ -17,7 +18,7 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [themeId, setThemeId] = useState<ThemeId>('amoled');
+  const [themeId, setThemeId] = useState<ThemeId>(() => getSettings().theme);
 
   const theme = themes[themeId];
 
@@ -30,8 +31,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.style.setProperty('color-scheme', theme.id === 'nordic' ? 'light' : 'dark');
   }, [themeId, theme]);
 
+  function setTheme(id: ThemeId) {
+    setThemeId(id);
+    saveSettings({ theme: id });
+  }
+
   return (
-    <ThemeContext.Provider value={{ themeId, theme, setTheme: setThemeId }}>
+    <ThemeContext.Provider value={{ themeId, theme, setTheme }}>
       {children}
     </ThemeContext.Provider>
   );

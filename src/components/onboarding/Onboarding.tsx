@@ -203,7 +203,7 @@ function Page1({ theme }: { theme: string }) {
         className="text-3xl font-bold mb-3 tracking-tight"
         style={{ color: 'var(--c-text)' }}
       >
-        Welcome to Alarmio Pro
+        Welcome to CR Royal Alarm
       </h1>
       <p
         className="text-base leading-relaxed"
@@ -268,7 +268,7 @@ function Page2({ theme }: { theme: string }) {
             Native Permissions
           </h2>
           <p className="text-sm" style={{ color: 'var(--c-textMuted)' }}>
-            How Alarmio uses system access
+            How CR Royal Alarm uses system access
           </p>
         </div>
       </div>

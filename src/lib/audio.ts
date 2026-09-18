@@ -5,6 +5,7 @@ let currentGain: GainNode | null = null;
 let audioContext: AudioContext | null = null;
 let crescendoTimer: ReturnType<typeof setInterval> | null = null;
 let fadeOutTimer: ReturnType<typeof setInterval> | null = null;
+let toneChangeInterval: ReturnType<typeof setInterval> | null = null;
 
 const toneFrequencies: Record<string, number[]> = {
   tone_1: [523.25, 659.25, 783.99],
@@ -27,9 +28,8 @@ export function playAlarmTone(
   const freqs = toneFrequencies[toneId] || toneFrequencies.tone_1;
 
   currentGain = audioContext.createGain();
-  const startVolume = crescendo !== 'off' ? 0.1 * volume : volume;
+  const startVolume = crescendo !== 'off' ? Math.max(0.05, 0.1 * volume) : volume;
   currentGain.gain.value = startVolume;
-
   currentGain.connect(audioContext.destination);
 
   currentOscillator = audioContext.createOscillator();
@@ -39,20 +39,17 @@ export function playAlarmTone(
   currentOscillator.start();
 
   let freqIndex = 0;
-  const toneInterval = setInterval(() => {
+  toneChangeInterval = setInterval(() => {
     if (currentOscillator && audioContext) {
       freqIndex = (freqIndex + 1) % freqs.length;
-      currentOscillator.frequency.setValueAtTime(
-        freqs[freqIndex],
-        audioContext.currentTime
-      );
+      currentOscillator.frequency.setValueAtTime(freqs[freqIndex], audioContext.currentTime);
     }
   }, 800);
 
-  // Crescendo
+  // Crescendo: gradually ramp volume up to full over the chosen duration
   if (crescendo !== 'off') {
-    const durationMs = parseInt(crescendo) * 1000;
-    const steps = durationMs / 200;
+    const durationMs = parseInt(crescendo, 10) * 1000;
+    const steps = Math.max(1, durationMs / 200);
     const volumeStep = (volume - startVolume) / steps;
     let stepCount = 0;
     crescendoTimer = setInterval(() => {
@@ -68,14 +65,8 @@ export function playAlarmTone(
     }, 200);
   }
 
-  // Store interval for cleanup
-  (currentOscillator as any)._toneInterval = toneInterval;
-
-  if (vibrateOverride) {
-    // Attempt to route through alarm stream via gain boost
-    if (currentGain) {
-      currentGain.gain.value = Math.min(currentGain.gain.value * 1.5, 1.0);
-    }
+  if (vibrateOverride && currentGain) {
+    currentGain.gain.value = Math.min(currentGain.gain.value * 1.5, 1.0);
   }
 }
 
@@ -88,14 +79,17 @@ export function stopAlarmTone(): void {
     clearInterval(fadeOutTimer);
     fadeOutTimer = null;
   }
+  if (toneChangeInterval) {
+    clearInterval(toneChangeInterval);
+    toneChangeInterval = null;
+  }
   if (currentOscillator) {
-    const interval = (currentOscillator as any)._toneInterval;
-    if (interval) clearInterval(interval);
     try {
       currentOscillator.stop();
     } catch {
-      // no-op
+      // already stopped, ignore
     }
+    currentOscillator.disconnect();
     currentOscillator = null;
   }
   if (currentGain) {
@@ -103,7 +97,7 @@ export function stopAlarmTone(): void {
     currentGain = null;
   }
   if (audioContext) {
-    audioContext.close();
+    audioContext.close().catch(() => {});
     audioContext = null;
   }
 }
@@ -111,7 +105,7 @@ export function stopAlarmTone(): void {
 export function startFadeOut(duration: string): void {
   const ms = duration === '5min' ? 300000 : duration === '10min' ? 600000 : 900000;
   const steps = ms / 200;
-  const startVal = currentGain?.gain.value || 1;
+  const startVal = currentGain?.gain.value ?? 1;
   const step = startVal / steps;
   let count = 0;
   fadeOutTimer = setInterval(() => {
@@ -126,32 +120,23 @@ export function startFadeOut(duration: string): void {
   }, 200);
 }
 
+const VIBRATION_PATTERNS: Record<Exclude<VibrationPattern, 'none'>, number[]> = {
+  continuous: [400, 200],
+  heartbeat: [100, 50, 100, 600],
+  rapid: [80, 80],
+  sos: [100, 50, 100, 50, 100, 200, 300, 50, 300, 50, 300, 600],
+};
+
 export function vibratePattern(pattern: VibrationPattern): ReturnType<typeof setInterval> | null {
-  if (pattern === 'none') return null;
+  if (pattern === 'none' || !('vibrate' in navigator)) return null;
 
-  const patterns: Record<string, number[]> = {
-    continuous: [200, 0],
-    heartbeat: [100, 50, 100, 600],
-    rapid: [50, 50],
-    sos: [100, 50, 100, 50, 100, 200, 300, 50, 300, 50, 300, 600],
-  none: [],
-  };
+  const p = VIBRATION_PATTERNS[pattern] || VIBRATION_PATTERNS.continuous;
+  const cycleDuration = p.reduce((a, b) => a + b, 0) || 400;
 
-  const p = patterns[pattern] || patterns.continuous;
-  let index = 0;
-
-  const vibrate = () => {
-    if (index >= p.length) {
-      index = 0;
-    }
-    if (p[index] > 0 && 'vibrate' in navigator) {
-      navigator.vibrate(p[index]);
-    }
-    index++;
-  };
-
-  vibrate();
-  return setInterval(vibrate, p.reduce((a, b) => a + b, 0) || 400);
+  // Fire the browser/OS vibration pattern immediately, then re-trigger it
+  // on a loop so the phone keeps buzzing until the alarm is dismissed.
+  navigator.vibrate(p);
+  return setInterval(() => navigator.vibrate(p), cycleDuration);
 }
 
 export function stopVibration(timer: ReturnType<typeof setInterval> | null): void {
@@ -162,16 +147,10 @@ export function stopVibration(timer: ReturnType<typeof setInterval> | null): voi
 export function speakBriefing(): void {
   try {
     const synth = window.speechSynthesis;
+    if (!synth) return;
     const now = new Date();
-    const timeStr = now.toLocaleTimeString([], {
-      hour: 'numeric',
-      minute: '2-digit',
-    });
-    const dateStr = now.toLocaleDateString([], {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-    });
+    const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    const dateStr = now.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' });
     const greetings = [
       'Good morning! Here is your daily briefing.',
       'Rise and shine! Time to start your day.',
@@ -185,13 +164,13 @@ export function speakBriefing(): void {
     ];
     const greeting = greetings[Math.floor(Math.random() * greetings.length)];
     const quote = quotes[Math.floor(Math.random() * quotes.length)];
-    const text = `${greeting} The time is ${timeStr}, ${dateStr}. Weather conditions look clear with a comfortable temperature. ${quote}`;
+    const text = `${greeting} The time is ${timeStr}, ${dateStr}. ${quote}`;
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.rate = 0.9;
     utterance.pitch = 1;
     synth.speak(utterance);
   } catch {
-    // no-op
+    // speech synthesis not available, fail silently
   }
 }

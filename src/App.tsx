@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ThemeProvider, useTheme } from '@/contexts/ThemeContext';
+import { ThemeProvider } from '@/contexts/ThemeContext';
 import { SplashScreen } from '@/components/SplashScreen';
 import { Onboarding } from '@/components/onboarding/Onboarding';
 import { Dashboard } from '@/components/dashboard/Dashboard';
@@ -8,13 +8,13 @@ import { SettingsPanel } from '@/components/settings/SettingsPanel';
 import { AlarmTrigger } from '@/components/trigger/AlarmTrigger';
 import { ToastContainer } from '@/components/ui/Toast';
 import { createAlarmChannel, requestNotificationPermission } from '@/lib/notifications';
+import { STORAGE_KEYS, getAlarmById } from '@/lib/storage';
 import { LocalNotifications } from '@capacitor/local-notifications';
-import type { Alarm, ThemeId } from '@/types';
+import type { Alarm } from '@/types';
 
 type AppPhase = 'splash' | 'onboarding' | 'dashboard';
 
 function AppContent() {
-  const { themeId, setTheme } = useTheme();
   const [phase, setPhase] = useState<AppPhase>('splash');
   const [editorOpen, setEditorOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -24,6 +24,7 @@ function AppContent() {
 
   useEffect(() => {
     initApp();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function initApp() {
@@ -31,43 +32,28 @@ function AppContent() {
       await createAlarmChannel();
       await requestNotificationPermission();
     } catch (e) {
-      console.log("Native notification channels not initialized in web/testing mode:", e);
+      console.log('Native notification channels not initialized in web/testing mode:', e);
     }
 
-    // Listen for incoming alarm notifications safely
+    // Listen for incoming alarm notifications so tapping / receiving one
+    // opens the full-screen AlarmTrigger UI.
     try {
-      LocalNotifications.addListener('notificationReceived', (notification) => {
+      LocalNotifications.addListener('localNotificationReceived', (notification) => {
         handleAlarmTrigger(notification.extra?.alarmId);
       });
+      LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
+        handleAlarmTrigger(action.notification.extra?.alarmId);
+      });
     } catch (e) {
-      console.log("Capacitor listeners inactive", e);
-    }
-
-    // LOAD SETTINGS 100% OFFLINE VIA LOCALSTORAGE
-    const savedTheme = localStorage.getItem('alarmio_theme');
-    const onboardingCompleted = localStorage.getItem('alarmio_onboarding_completed') === 'true';
-    
-    if (savedTheme) {
-      setTheme(savedTheme as ThemeId);
-    }
-    
-    if (onboardingCompleted) {
-      setPhase('dashboard');
+      console.log('Capacitor listeners inactive', e);
     }
   }
 
   function handleAlarmTrigger(alarmId?: string) {
     if (!alarmId) return;
-    
-    // Safely pull specific alarm payload from offline localStorage array
-    try {
-      const savedAlarms = JSON.parse(localStorage.getItem('alarms') || '[]');
-      const match = savedAlarms.find((a: any) => a.id === alarmId);
-      if (match) {
-        setTriggeredAlarm(match as Alarm);
-      }
-    } catch (e) {
-      console.error(e);
+    const match = getAlarmById(alarmId);
+    if (match) {
+      setTriggeredAlarm(match);
     }
   }
 
@@ -78,16 +64,12 @@ function AppContent() {
   }
 
   function checkOnboarding() {
-    const onboardingCompleted = localStorage.getItem('alarmio_onboarding_completed') === 'true';
-    if (onboardingCompleted) {
-      setPhase('dashboard');
-    } else {
-      setPhase('onboarding');
-    }
+    const onboardingCompleted = localStorage.getItem(STORAGE_KEYS.ONBOARDING_COMPLETED) === 'true';
+    setPhase(onboardingCompleted ? 'dashboard' : 'onboarding');
   }
 
   function handleOnboardingComplete() {
-    localStorage.setItem('alarmio_onboarding_completed', 'true');
+    localStorage.setItem(STORAGE_KEYS.ONBOARDING_COMPLETED, 'true');
     setPhase('dashboard');
   }
 

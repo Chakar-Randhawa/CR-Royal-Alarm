@@ -27,6 +27,7 @@
 
 * {
   -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
 }
 
 html, body {
@@ -36,6 +37,11 @@ html, body {
   overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  height: 100%;
+}
+
+#root {
+  height: 100%;
 }
 
 body {

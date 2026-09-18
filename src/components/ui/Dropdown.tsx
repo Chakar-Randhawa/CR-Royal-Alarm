@@ -31,7 +31,7 @@ export function Dropdown({ value, options, onChange, label, placeholder }: Dropd
   const selected = options.find((o) => o.value === value);
 
   return (
-    <div className="w-full" ref={ref}>
+    <div className="w-full relative" ref={ref}>
       {label && (
         <p className="text-sm font-medium mb-2" style={{ color: 'var(--c-text)' }}>
           {label}
@@ -58,7 +58,7 @@ export function Dropdown({ value, options, onChange, label, placeholder }: Dropd
       </button>
       {open && (
         <div
-          className="absolute z-50 mt-1 w-full rounded-xl overflow-hidden shadow-xl"
+          className="absolute z-50 mt-1 w-full rounded-xl overflow-hidden shadow-xl max-h-64 overflow-y-auto"
           style={{
             backgroundColor: 'var(--c-surface)',
             border: `1px solid var(--c-border)`,
