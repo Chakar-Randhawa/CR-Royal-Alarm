@@ -62,6 +62,33 @@ theme choice lives entirely in the device's local storage.
   insets as CSS environment variables).
 - Rebranded from "Alarmio Pro" to **CR Royal Alarm** throughout.
 
+### Round 2 fixes (based on real-device testing feedback)
+- **App icon was still the Capacitor default** — never actually wired in.
+  Now generated at every Android density (legacy + adaptive icon with
+  proper safe-zone padding) from the gold crown/clock artwork and copied
+  into the build automatically. See `android-assets/README.md`.
+- **No AM/PM in the time picker** — the old picker was a bare 24-hour
+  number field, which is exactly what caused the "picked Friday, got '6
+  days'" confusion: it's easy to enter the wrong hour with no AM/PM to
+  cross-check against. The editor now has a proper 12-hour stepper (tap
+  arrows or type) with an AM/PM toggle, **plus a live "Next rings ... at
+  ..." preview** right under the day selector so you can verify the exact
+  day and time before saving — no more guessing from a bare countdown
+  number.
+  - To be clear on timezones: the app was already using the phone's own
+    system clock for everything (JavaScript's `Date` always reflects the
+    device's local time zone automatically) — install it in Lahore and
+    it uses Lahore time, install it in Sydney and it uses Sydney time,
+    with no manual timezone setting anywhere. There was no timezone bug;
+    the missing AM/PM indicator was the actual problem.
+- **Custom gallery song was buried** — it lived inside a collapsed "Audio
+  & Vibration" section. It's now its own always-visible card right on the
+  main New/Edit Alarm screen, and the alarm's dashboard card shows a
+  small 🎵 badge naming whichever tone/song is set.
+- **Subtle intentional loading polish** — the dashboard now shows a brief
+  skeleton-card placeholder for ~450ms on first open (instead of popping
+  instantly), for a more native, settled-in feel. Kept short on purpose.
+
 ## Project structure
 
 ```
@@ -109,7 +136,7 @@ git init
 git add .
 git commit -m "CR Royal Alarm - initial commit"
 git branch -M main
-git remote add origin https://github.com/<your-username>/<your-repo>.git
+git remote add origin https://github.com/Chakar-Randhawa/CR-Royal-Alarm.git
 git push -u origin main
 ```
 

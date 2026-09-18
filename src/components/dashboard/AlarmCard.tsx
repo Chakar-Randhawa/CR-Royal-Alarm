@@ -1,5 +1,5 @@
 import type { Alarm } from '@/types';
-import { DAYS_OF_WEEK } from '@/types';
+import { DAYS_OF_WEEK, ALARM_TONES } from '@/types';
 import { formatTime, formatCountdown, getNextAlarmTime } from '@/lib/notifications';
 import { Toggle } from '@/components/ui/Toggle';
 import {
@@ -9,6 +9,7 @@ import {
   ClockIcon,
   TrashIcon,
   EditIcon,
+  HeadphonesIcon,
 } from '@/components/icons/AlarmIcons';
 
 interface AlarmCardProps {
@@ -57,6 +58,15 @@ export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps)
       .map((d) => DAYS_OF_WEEK[d] || '')
       .filter(Boolean)
       .join(', ');
+  }
+
+  function getAudioLabel() {
+    if (!alarm) return null;
+    if (alarm.audio_source === 'custom') {
+      return alarm.audio_custom_name || 'Custom song';
+    }
+    const tone = ALARM_TONES.find((t) => t.id === alarm.audio_source);
+    return tone ? tone.name : null;
   }
 
   if (!alarm) return null;
@@ -111,6 +121,19 @@ export function AlarmCard({ alarm, onToggle, onEdit, onDelete }: AlarmCardProps)
               >
                 <ClockIcon size={12} color="var(--c-warning)" />
                 Auto-delete
+              </span>
+            )}
+            {getAudioLabel() && (
+              <span
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded-md max-w-[140px] truncate"
+                style={{ backgroundColor: 'var(--c-bgTertiary)', color: 'var(--c-textSecondary)' }}
+              >
+                {alarm.audio_source === 'custom' ? (
+                  <span>🎵</span>
+                ) : (
+                  <HeadphonesIcon size={12} color="var(--c-textSecondary)" />
+                )}
+                <span className="truncate">{getAudioLabel()}</span>
               </span>
             )}
           </div>

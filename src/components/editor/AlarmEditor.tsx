@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import type { Alarm, MissionType, MathDifficulty, ShakeIntensity, VibrationPattern, VolumeCrescendo, FadeOut } from '@/types';
 import { defaultAlarmValues, DAYS_OF_WEEK, ALARM_TONES } from '@/types';
-import { scheduleAlarm, cancelAlarm } from '@/lib/notifications';
+import { scheduleAlarm, cancelAlarm, getNextAlarmTime, formatTime } from '@/lib/notifications';
 import { getAlarms, saveAlarms } from '@/lib/storage';
 import { Modal } from '@/components/ui/Modal';
 import { Toggle } from '@/components/ui/Toggle';
@@ -18,6 +18,7 @@ import {
   HeadphonesIcon,
   SparklesIcon,
   RefreshIcon,
+  ChevronDownIcon,
 } from '@/components/icons/AlarmIcons';
 
 interface AlarmEditorProps {
@@ -142,32 +143,50 @@ export function AlarmEditor({ open, alarm, onClose, onSaved }: AlarmEditorProps)
           <label className="text-sm font-medium mb-2 block" style={{ color: 'var(--c-text)' }}>
             Time
           </label>
-          <div className="flex items-center gap-2">
-            <div
-              className="flex-1 rounded-2xl p-4 flex items-center justify-center"
-              style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)` }}
-            >
-              <input
-                type="number"
-                min={0}
-                max={23}
-                value={form.hour !== undefined ? form.hour : 6}
-                onChange={(e) => update('hour', Math.max(0, Math.min(23, parseInt(e.target.value) || 0)) as FormState['hour'])}
-                className="w-16 bg-transparent text-center text-4xl font-bold tabular-nums outline-none"
-                style={{ color: 'var(--c-text)' }}
-              />
-              <span className="text-4xl font-bold mx-1" style={{ color: 'var(--c-textMuted)' }}>
-                :
-              </span>
-              <input
-                type="number"
-                min={0}
-                max={59}
-                value={form.minute !== undefined ? form.minute : 0}
-                onChange={(e) => update('minute', Math.max(0, Math.min(59, parseInt(e.target.value) || 0)) as FormState['minute'])}
-                className="w-16 bg-transparent text-center text-4xl font-bold tabular-nums outline-none"
-                style={{ color: 'var(--c-text)' }}
-              />
+          <div
+            className="rounded-2xl p-5 flex items-center justify-center gap-4"
+            style={{ backgroundColor: 'var(--c-surface)', border: `1px solid var(--c-border)` }}
+          >
+            <TimeStepper
+              value={to12Hour(form.hour !== undefined ? form.hour : 7)}
+              onChange={(h12) => update('hour', from12Hour(h12, isPM(form.hour !== undefined ? form.hour : 7)) as FormState['hour'])}
+              min={1}
+              max={12}
+              pad={false}
+            />
+            <span className="text-4xl font-bold" style={{ color: 'var(--c-textMuted)' }}>
+              :
+            </span>
+            <TimeStepper
+              value={form.minute !== undefined ? form.minute : 0}
+              onChange={(m) => update('minute', m as FormState['minute'])}
+              min={0}
+              max={59}
+              pad
+            />
+            <div className="flex flex-col gap-1.5 ml-1">
+              {(['AM', 'PM'] as const).map((period) => {
+                const active = isPM(form.hour !== undefined ? form.hour : 7) === (period === 'PM');
+                return (
+                  <button
+                    key={period}
+                    type="button"
+                    onClick={() =>
+                      update(
+                        'hour',
+                        from12Hour(to12Hour(form.hour !== undefined ? form.hour : 7), period === 'PM') as FormState['hour']
+                      )
+                    }
+                    className="px-3 py-2 rounded-lg text-xs font-bold transition-all"
+                    style={{
+                      backgroundColor: active ? 'var(--c-primary)' : 'var(--c-bgTertiary)',
+                      color: active ? 'var(--c-primaryText)' : 'var(--c-textMuted)',
+                    }}
+                  >
+                    {period}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -211,6 +230,14 @@ export function AlarmEditor({ open, alarm, onClose, onSaved }: AlarmEditorProps)
           label="One-time alarm"
           description="Auto-delete after firing"
         />
+
+        {/* Live "next fire" preview — lets you verify the day/time math
+            before saving, instead of guessing from a bare countdown. */}
+        <NextFirePreview form={form} />
+
+        {/* Custom song — prominent, always visible (not buried in a
+            collapsible section) */}
+        <CustomSongPicker form={form} update={(k, v) => update(k as keyof FormState, v)} />
 
         {/* Collapsible sections */}
         <div className="space-y-2">
@@ -428,42 +455,20 @@ function SnoozeSection({ form, update }: { form: any; update: (key: string, valu
 }
 
 function AudioSection({ form, update }: { form: any; update: (key: string, value: any) => void }) {
-  const [picking, setPicking] = useState(false);
   const isCustomSelected = form && form.audio_source === 'custom';
-  const maxClip = form && form.audio_custom_duration ? Math.min(180, Math.round(form.audio_custom_duration)) : 180;
-
-  async function handlePickSong() {
-    setPicking(true);
-    try {
-      const picked = await pickAudioFile();
-      if (!picked) {
-        setPicking(false);
-        return;
-      }
-      // Clean up a previously picked file for this alarm, if any
-      if (form && form.audio_source === 'custom' && form.audio_custom_storage_path) {
-        await deleteCustomAudio(form.audio_custom_storage_path);
-      }
-      update('audio_source', 'custom');
-      update('audio_local_path', picked.uri);
-      update('audio_custom_name', picked.name);
-      update('audio_custom_duration', picked.duration);
-      update('audio_custom_storage_path', picked.storagePath || '');
-      update('audio_clip_length', Math.min(30, Math.max(5, Math.round(picked.duration))));
-    } catch (e) {
-      console.error('Song pick failed', e);
-    } finally {
-      setPicking(false);
-    }
-  }
 
   return (
     <>
       <div>
         <label className="text-sm font-medium mb-2 block" style={{ color: 'var(--c-text)' }}>
-          Alarm Tone
+          Built-in Alarm Tone
         </label>
-        <div className="grid grid-cols-2 gap-2 mb-2">
+        {isCustomSelected && (
+          <p className="text-xs mb-2" style={{ color: 'var(--c-textMuted)' }}>
+            Currently using your custom song (see "Custom Song" above). Pick a tone below to switch back.
+          </p>
+        )}
+        <div className="grid grid-cols-2 gap-2">
           {ALARM_TONES.map((tone) => {
             const isToneSelected = form && form.audio_source === tone.id;
             return (
@@ -484,42 +489,6 @@ function AudioSection({ form, update }: { form: any; update: (key: string, value
             );
           })}
         </div>
-
-        <button
-          type="button"
-          onClick={handlePickSong}
-          disabled={picking}
-          className="flex items-center gap-2 px-3 py-3 rounded-xl text-xs font-medium transition-all w-full disabled:opacity-60"
-          style={{
-            backgroundColor: isCustomSelected ? 'var(--c-primary)' : 'var(--c-surface)',
-            color: isCustomSelected ? 'var(--c-primaryText)' : 'var(--c-text)',
-            border: `1px dashed ${isCustomSelected ? 'var(--c-primary)' : 'var(--c-border)'}`,
-          }}
-        >
-          <SparklesIcon size={14} color={isCustomSelected ? 'var(--c-primaryText)' : 'var(--c-textSecondary)'} />
-          {picking
-            ? 'Opening gallery...'
-            : isCustomSelected && form.audio_custom_name
-            ? `🎵 ${form.audio_custom_name}`
-            : 'Choose a song from your gallery'}
-        </button>
-
-        {isCustomSelected && (
-          <div className="mt-3 animate-in">
-            <Slider
-              label="Clip length used when ringing"
-              value={typeof form.audio_clip_length === 'number' ? form.audio_clip_length : 30}
-              min={5}
-              max={Math.max(5, maxClip)}
-              step={5}
-              onChange={(v) => update('audio_clip_length', v)}
-              formatValue={(v) => (v >= 60 ? `${Math.floor(v / 60)}m ${v % 60}s` : `${v}s`)}
-            />
-            <p className="text-xs mt-1.5" style={{ color: 'var(--c-textMuted)' }}>
-              Only the first {form.audio_clip_length || 30} seconds of the song will play, looping until you dismiss the alarm.
-            </p>
-          </div>
-        )}
       </div>
 
       <Dropdown
@@ -649,5 +618,204 @@ function InterfaceSection({ form, update }: { form: any; update: (key: string, v
         description="Text-to-speech reads a greeting, time, date and motivational quote"
       />
     </>
+  );
+}
+
+// ---- 12-hour time helpers -------------------------------------------------
+
+function to12Hour(hour24: number): number {
+  const h = ((hour24 % 24) + 24) % 24;
+  const h12 = h % 12;
+  return h12 === 0 ? 12 : h12;
+}
+
+function isPM(hour24: number): boolean {
+  return ((hour24 % 24) + 24) % 24 >= 12;
+}
+
+function from12Hour(hour12: number, pm: boolean): number {
+  const base = hour12 % 12; // 12 -> 0
+  return pm ? base + 12 : base;
+}
+
+function TimeStepper({
+  value,
+  onChange,
+  min,
+  max,
+  pad,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  pad: boolean;
+}) {
+  function step(delta: number) {
+    let next = value + delta;
+    if (next > max) next = min;
+    if (next < min) next = max;
+    onChange(next);
+  }
+
+  const display = pad ? value.toString().padStart(2, '0') : String(value);
+
+  return (
+    <div className="flex flex-col items-center">
+      <button
+        type="button"
+        onClick={() => step(1)}
+        className="p-1.5 rounded-lg hover:opacity-70 transition-opacity"
+        aria-label="Increase"
+      >
+        <ChevronDownIcon size={20} color="var(--c-textMuted)" className="rotate-180" />
+      </button>
+      <input
+        type="number"
+        inputMode="numeric"
+        value={value}
+        onChange={(e) => {
+          const raw = parseInt(e.target.value, 10);
+          if (isNaN(raw)) return;
+          onChange(Math.max(min, Math.min(max, raw)));
+        }}
+        className="w-16 bg-transparent text-center text-4xl font-bold tabular-nums outline-none"
+        style={{ color: 'var(--c-text)' }}
+      />
+      <span className="sr-only">{display}</span>
+      <button
+        type="button"
+        onClick={() => step(-1)}
+        className="p-1.5 rounded-lg hover:opacity-70 transition-opacity"
+        aria-label="Decrease"
+      >
+        <ChevronDownIcon size={20} color="var(--c-textMuted)" />
+      </button>
+    </div>
+  );
+}
+
+// ---- Next-fire preview ------------------------------------------------------
+
+function NextFirePreview({ form }: { form: any }) {
+  if (!form || form.hour === undefined || form.minute === undefined) return null;
+
+  const alarmLike = {
+    hour: form.hour,
+    minute: form.minute,
+    days_of_week: Array.isArray(form.days_of_week) ? form.days_of_week : [],
+    is_one_time: !!form.is_one_time,
+  };
+
+  const next = getNextAlarmTime(alarmLike);
+  if (!next) return null;
+
+  const dayLabel = next.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+  const timeLabel = formatTime(form.hour, form.minute);
+  const isToday = next.toDateString() === new Date().toDateString();
+
+  return (
+    <div
+      className="rounded-xl px-4 py-3 flex items-center gap-2.5"
+      style={{ backgroundColor: 'var(--c-bgTertiary)', border: `1px solid var(--c-border)` }}
+    >
+      <ClockIcon size={16} color="var(--c-accent)" />
+      <p className="text-xs" style={{ color: 'var(--c-textSecondary)' }}>
+        Next rings <strong style={{ color: 'var(--c-text)' }}>{isToday ? 'today' : dayLabel}</strong> at{' '}
+        <strong style={{ color: 'var(--c-text)' }}>{timeLabel}</strong> (your device's local time)
+      </p>
+    </div>
+  );
+}
+
+// ---- Prominent custom-song picker (always visible, not buried in a
+// collapsible section) --------------------------------------------------------
+
+function CustomSongPicker({ form, update }: { form: any; update: (key: string, value: any) => void }) {
+  const [picking, setPicking] = useState(false);
+  const isCustomSelected = form && form.audio_source === 'custom';
+  const maxClip = form && form.audio_custom_duration ? Math.min(180, Math.round(form.audio_custom_duration)) : 180;
+
+  async function handlePickSong() {
+    setPicking(true);
+    try {
+      const picked = await pickAudioFile();
+      if (!picked) {
+        setPicking(false);
+        return;
+      }
+      if (form && form.audio_source === 'custom' && form.audio_custom_storage_path) {
+        await deleteCustomAudio(form.audio_custom_storage_path);
+      }
+      update('audio_source', 'custom');
+      update('audio_local_path', picked.uri);
+      update('audio_custom_name', picked.name);
+      update('audio_custom_duration', picked.duration);
+      update('audio_custom_storage_path', picked.storagePath || '');
+      update('audio_clip_length', Math.min(30, Math.max(5, Math.round(picked.duration))));
+      showToast('Song added as alarm tone', 'success');
+    } catch (e) {
+      console.error('Song pick failed', e);
+      showToast('Could not read that file', 'error');
+    } finally {
+      setPicking(false);
+    }
+  }
+
+  function handleClear() {
+    update('audio_source', 'tone_1');
+  }
+
+  return (
+    <div
+      className="rounded-2xl p-4"
+      style={{
+        backgroundColor: isCustomSelected ? 'var(--c-bgTertiary)' : 'var(--c-surface)',
+        border: `1.5px dashed ${isCustomSelected ? 'var(--c-primary)' : 'var(--c-border)'}`,
+      }}
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <SparklesIcon size={16} color="var(--c-primary)" />
+        <p className="text-sm font-semibold" style={{ color: 'var(--c-text)' }}>
+          Custom Song
+        </p>
+      </div>
+      <p className="text-xs mb-3" style={{ color: 'var(--c-textMuted)' }}>
+        Use any song from your phone as this alarm's ringtone.
+      </p>
+
+      <button
+        type="button"
+        onClick={handlePickSong}
+        disabled={picking}
+        className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-semibold transition-all w-full disabled:opacity-60"
+        style={{
+          backgroundColor: isCustomSelected ? 'var(--c-primary)' : 'var(--c-bgTertiary)',
+          color: isCustomSelected ? 'var(--c-primaryText)' : 'var(--c-text)',
+        }}
+      >
+        {picking ? 'Opening gallery...' : isCustomSelected && form.audio_custom_name ? `🎵 ${form.audio_custom_name}` : '🎵 Choose a song from your gallery'}
+      </button>
+
+      {isCustomSelected && (
+        <div className="mt-3 animate-in">
+          <Slider
+            label="Clip length used when ringing"
+            value={typeof form.audio_clip_length === 'number' ? form.audio_clip_length : 30}
+            min={5}
+            max={Math.max(5, maxClip)}
+            step={5}
+            onChange={(v) => update('audio_clip_length', v)}
+            formatValue={(v) => (v >= 60 ? `${Math.floor(v / 60)}m ${v % 60}s` : `${v}s`)}
+          />
+          <p className="text-xs mt-1.5 mb-2" style={{ color: 'var(--c-textMuted)' }}>
+            Only the first {form.audio_clip_length || 30}s plays, looping until dismissed.
+          </p>
+          <button type="button" onClick={handleClear} className="text-xs underline" style={{ color: 'var(--c-textMuted)' }}>
+            Use a built-in tone instead
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

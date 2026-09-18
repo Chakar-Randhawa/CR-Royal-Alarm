@@ -22,12 +22,16 @@ export function Dashboard({ onAddAlarm, onEditAlarm, onOpenSettings }: Dashboard
   const [sortOpen, setSortOpen] = useState(false);
 
   useEffect(() => {
-    loadAlarms();
+    // A brief, deliberate skeleton on first mount only — feels like the
+    // dashboard is settling in rather than popping instantly. Every later
+    // refresh (toggle, delete, quick nap) stays instant.
+    setLoading(true);
+    const t = setTimeout(loadAlarms, 450);
+    return () => clearTimeout(t);
   }, []);
 
   // 100% offline: alarms are read straight from local storage.
   function loadAlarms() {
-    setLoading(true);
     try {
       setAlarms(getAlarms());
     } catch (error) {
@@ -259,11 +263,22 @@ export function Dashboard({ onAddAlarm, onEditAlarm, onOpenSettings }: Dashboard
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 96px)' }}
       >
         {loading ? (
-          <div className="flex flex-col items-center justify-center py-20">
-            <div
-              className="w-8 h-8 rounded-full border-2 animate-spin"
-              style={{ borderColor: 'var(--c-border)', borderTopColor: 'var(--c-primary)' }}
-            />
+          <div className="space-y-3 pt-1">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="rounded-2xl p-4 animate-pulse"
+                style={{
+                  backgroundColor: 'var(--c-bgTertiary)',
+                  border: `1px solid var(--c-border)`,
+                  animationDelay: `${i * 120}ms`,
+                }}
+              >
+                <div className="h-8 w-28 rounded-md mb-3" style={{ backgroundColor: 'var(--c-surfaceHover)' }} />
+                <div className="h-3 w-40 rounded-md mb-2" style={{ backgroundColor: 'var(--c-surfaceHover)' }} />
+                <div className="h-5 w-20 rounded-md" style={{ backgroundColor: 'var(--c-surfaceHover)' }} />
+              </div>
+            ))}
           </div>
         ) : filteredAlarms.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">

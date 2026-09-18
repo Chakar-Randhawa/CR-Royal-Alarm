@@ -143,7 +143,9 @@ function hashId(str: string): number {
   return Math.abs(hash);
 }
 
-export function getNextAlarmTime(alarm: Alarm): Date | null {
+export function getNextAlarmTime(
+  alarm: Pick<Alarm, 'hour' | 'minute' | 'days_of_week' | 'is_one_time'>
+): Date | null {
   const now = new Date();
 
   if (alarm.days_of_week.length > 0 && !alarm.is_one_time) {
