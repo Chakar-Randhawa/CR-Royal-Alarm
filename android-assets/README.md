@@ -35,6 +35,15 @@ automatically, right after `cap add android` and before the Gradle build.
 - **`java/com/crroyal/alarm/MainActivity.java`** — overrides the
   auto-generated `MainActivity` to register `NativeSettingsPlugin` (custom
   local plugins that aren't npm packages must be registered manually).
+- **`patch_manifest.py`** — inserts the `<uses-permission>` tags this app
+  needs (exact-alarm, overlay, battery-exemption, etc.) into the freshly
+  generated `AndroidManifest.xml`. A plain Python script rather than a
+  multi-line `sed` command, so there's no shell-escaping ambiguity.
+
+Custom gallery songs are **not** stored here — they're saved on-device in
+IndexedDB (a standard browser API, see `src/lib/customAudio.ts`), which
+needed no extra native plugin and therefore no extra dependency-version
+risk in the build.
 
 ## Changing the app icon later
 

@@ -1,30 +1,32 @@
-import { Filesystem, Directory } from '@capacitor/filesystem';
-import { Capacitor } from '@capacitor/core';
+// Custom alarm songs are stored as raw Blobs in IndexedDB — a standard
+// browser API available in every Capacitor WebView with no extra native
+// plugin (and therefore no plugin-version risk in the build). This is
+// what actually persists the song across app restarts; playback later
+// creates a fresh blob: object URL from the stored Blob on demand.
+
+const DB_NAME = 'cr_royal_audio_db';
+const STORE_NAME = 'custom_audio';
+const DB_VERSION = 1;
 
 export interface PickedAudio {
-  /** Playable URI (Capacitor-converted file:// URI, or a blob: URL on web) */
-  uri: string;
+  /** IndexedDB key — store this in the alarm as audio_local_path */
+  key: string;
   /** Original file name, for display */
   name: string;
   /** Full duration of the picked file, in seconds */
   duration: number;
-  /** Raw persisted path (Filesystem-relative), used only for later deletion */
-  storagePath: string | null;
 }
 
-const CUSTOM_AUDIO_DIR = 'cr_royal_custom_audio';
-
-function readFileAsBase64(file: File): Promise<string> {
+function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      // strip the "data:audio/xxx;base64," prefix — Filesystem.writeFile wants raw base64
-      const base64 = result.split(',')[1] || '';
-      resolve(base64);
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(STORE_NAME)) {
+        req.result.createObjectStore(STORE_NAME);
+      }
     };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
   });
 }
 
@@ -32,21 +34,18 @@ function readAudioDuration(objectUrl: string): Promise<number> {
   return new Promise((resolve) => {
     const audio = new Audio();
     audio.preload = 'metadata';
-    audio.onloadedmetadata = () => {
-      resolve(isFinite(audio.duration) ? audio.duration : 0);
-    };
+    audio.onloadedmetadata = () => resolve(isFinite(audio.duration) ? audio.duration : 0);
     audio.onerror = () => resolve(0);
     audio.src = objectUrl;
   });
 }
 
 /**
- * Opens the device's native gallery / file picker (via a standard HTML file
- * input, which Capacitor's WebView delegates to the real Android/iOS system
- * picker) so the user can choose any song from their phone as an alarm tone.
- * The picked file is copied into the app's private, persistent storage via
- * the Filesystem plugin so it survives app restarts — nothing is uploaded
- * anywhere, it never leaves the device.
+ * Opens the device's native gallery / file picker (a standard HTML file
+ * input — Capacitor's WebView delegates this to the real Android system
+ * picker) so the user can choose any song from their phone as an alarm
+ * tone. The picked file is saved into IndexedDB so it's never re-requested
+ * from the gallery and survives app restarts — nothing leaves the device.
  */
 export function pickAudioFile(): Promise<PickedAudio | null> {
   return new Promise((resolve) => {
@@ -66,32 +65,18 @@ export function pickAudioFile(): Promise<PickedAudio | null> {
       try {
         const objectUrl = URL.createObjectURL(file);
         const duration = await readAudioDuration(objectUrl);
+        URL.revokeObjectURL(objectUrl);
 
-        if (Capacitor.isNativePlatform()) {
-          const base64 = await readFileAsBase64(file);
-          const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-          const path = `${CUSTOM_AUDIO_DIR}/${safeName}`;
+        const key = `song_${Date.now()}`;
+        const db = await openDb();
+        await new Promise<void>((res, rej) => {
+          const tx = db.transaction(STORE_NAME, 'readwrite');
+          tx.objectStore(STORE_NAME).put(file, key);
+          tx.oncomplete = () => res();
+          tx.onerror = () => rej(tx.error);
+        });
 
-          await Filesystem.mkdir({ path: CUSTOM_AUDIO_DIR, directory: Directory.Data, recursive: true }).catch(() => {
-            // already exists — fine
-          });
-
-          await Filesystem.writeFile({
-            path,
-            data: base64,
-            directory: Directory.Data,
-          });
-
-          const uriResult = await Filesystem.getUri({ path, directory: Directory.Data });
-          const playableUri = Capacitor.convertFileSrc(uriResult.uri);
-
-          URL.revokeObjectURL(objectUrl);
-          resolve({ uri: playableUri, name: file.name, duration, storagePath: path });
-        } else {
-          // Web preview fallback: no persistent native storage, use the
-          // blob URL directly (works for the current session only).
-          resolve({ uri: objectUrl, name: file.name, duration, storagePath: null });
-        }
+        resolve({ key, name: file.name, duration });
       } catch (e) {
         console.error('Failed to pick/persist audio file', e);
         resolve(null);
@@ -103,11 +88,49 @@ export function pickAudioFile(): Promise<PickedAudio | null> {
   });
 }
 
-export async function deleteCustomAudio(storagePath: string | null): Promise<void> {
-  if (!storagePath) return;
+/**
+ * Looks up a previously picked song by its IndexedDB key and returns a
+ * fresh, playable blob: URL for it. Call revokeCustomAudioUrl() with the
+ * result once playback stops to free memory.
+ */
+export async function getCustomAudioUrl(key: string): Promise<string | null> {
   try {
-    await Filesystem.deleteFile({ path: storagePath, directory: Directory.Data });
+    const db = await openDb();
+    const blob = await new Promise<Blob | undefined>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const req = tx.objectStore(STORE_NAME).get(key);
+      req.onsuccess = () => resolve(req.result as Blob | undefined);
+      req.onerror = () => reject(req.error);
+    });
+    if (!blob) return null;
+    return URL.createObjectURL(blob);
+  } catch (e) {
+    console.error('Failed to read custom audio from storage', e);
+    return null;
+  }
+}
+
+export function revokeCustomAudioUrl(url: string | null): void {
+  if (url) {
+    try {
+      URL.revokeObjectURL(url);
+    } catch {
+      // already revoked
+    }
+  }
+}
+
+export async function deleteCustomAudio(key: string | null): Promise<void> {
+  if (!key) return;
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
   } catch {
-    // already gone / not on native platform — ignore
+    // already gone — ignore
   }
 }

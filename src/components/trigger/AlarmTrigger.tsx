@@ -57,7 +57,7 @@ export function AlarmTrigger({ alarm, onDismiss }: AlarmTriggerProps) {
           alarm.audio_clip_length || 30,
           1.0,
           alarm.volume_crescendo || 'off'
-        );
+        ).catch((e) => console.error('Custom audio trigger failed', e));
       } else {
         playAlarmTone(
           alarm ? alarm.audio_source : 'tone_1',

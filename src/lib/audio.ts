@@ -1,4 +1,5 @@
 import type { VibrationPattern } from '@/types';
+import { getCustomAudioUrl, revokeCustomAudioUrl } from '@/lib/customAudio';
 
 let currentOscillator: OscillatorNode | null = null;
 let currentGain: GainNode | null = null;
@@ -11,6 +12,7 @@ let toneChangeInterval: ReturnType<typeof setInterval> | null = null;
 let customAudioEl: HTMLAudioElement | null = null;
 let customAudioSourceNode: MediaElementAudioSourceNode | null = null;
 let customAudioLoopHandler: (() => void) | null = null;
+let customAudioObjectUrl: string | null = null;
 
 const toneFrequencies: Record<string, number[]> = {
   tone_1: [523.25, 659.25, 783.99],
@@ -132,24 +134,31 @@ export function stopAlarmTone(): void {
 }
 
 /**
- * Plays a user-picked song, looping only the first `clipLength` seconds of
- * it (so a 3-minute song can still be used as a short, repeating alarm
- * clip) until stopCustomAudio() is called.
+ * Plays a user-picked song (looked up from IndexedDB by key), looping only
+ * the first `clipLength` seconds of it (so a 3-minute song can still be
+ * used as a short, repeating alarm clip) until stopCustomAudio() is called.
  */
-export function playCustomAudio(
-  uri: string,
+export async function playCustomAudio(
+  audioKey: string,
   clipLength: number,
   volume: number = 1.0,
   crescendo: string = 'off'
-): void {
+): Promise<void> {
   stopCustomAudio();
   stopAlarmTone();
+
+  const url = await getCustomAudioUrl(audioKey);
+  if (!url) {
+    console.error('Custom audio not found in storage, falling back to default tone');
+    playAlarmTone('tone_1', volume, crescendo, false);
+    return;
+  }
+  customAudioObjectUrl = url;
 
   const ctx = ensureAudioContext();
   const analyserNode = ensureAnalyser(ctx);
 
-  customAudioEl = new Audio(uri);
-  customAudioEl.crossOrigin = 'anonymous';
+  customAudioEl = new Audio(url);
   customAudioEl.loop = false;
 
   currentGain = ctx.createGain();
@@ -214,6 +223,10 @@ export function stopCustomAudio(): void {
   if (customAudioSourceNode) {
     customAudioSourceNode.disconnect();
     customAudioSourceNode = null;
+  }
+  if (customAudioObjectUrl) {
+    revokeCustomAudioUrl(customAudioObjectUrl);
+    customAudioObjectUrl = null;
   }
   if (currentGain) {
     currentGain.disconnect();

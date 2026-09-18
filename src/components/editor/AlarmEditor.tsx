@@ -744,14 +744,13 @@ function CustomSongPicker({ form, update }: { form: any; update: (key: string, v
         setPicking(false);
         return;
       }
-      if (form && form.audio_source === 'custom' && form.audio_custom_storage_path) {
-        await deleteCustomAudio(form.audio_custom_storage_path);
+      if (form && form.audio_source === 'custom' && form.audio_local_path) {
+        await deleteCustomAudio(form.audio_local_path);
       }
       update('audio_source', 'custom');
-      update('audio_local_path', picked.uri);
+      update('audio_local_path', picked.key);
       update('audio_custom_name', picked.name);
       update('audio_custom_duration', picked.duration);
-      update('audio_custom_storage_path', picked.storagePath || '');
       update('audio_clip_length', Math.min(30, Math.max(5, Math.round(picked.duration))));
       showToast('Song added as alarm tone', 'success');
     } catch (e) {

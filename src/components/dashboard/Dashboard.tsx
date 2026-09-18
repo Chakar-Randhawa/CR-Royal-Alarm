@@ -3,6 +3,7 @@ import type { Alarm, FilterTab, SortMode } from '@/types';
 import { defaultAlarmValues } from '@/types';
 import { scheduleAlarm, cancelAlarm, getNextAlarmTime } from '@/lib/notifications';
 import { getAlarms, saveAlarms } from '@/lib/storage';
+import { deleteCustomAudio } from '@/lib/customAudio';
 import { AlarmCard } from '@/components/dashboard/AlarmCard';
 import { QuickNapTiles } from '@/components/dashboard/QuickNapTiles';
 import { showToast } from '@/components/ui/Toast';
@@ -83,6 +84,10 @@ export function Dashboard({ onAddAlarm, onEditAlarm, onOpenSettings }: Dashboard
     try {
       await cancelAlarm(id);
       const alarmsArray = getAlarms();
+      const target = alarmsArray.find((a) => a.id === id);
+      if (target && target.audio_source === 'custom' && target.audio_local_path) {
+        await deleteCustomAudio(target.audio_local_path);
+      }
       const filteredAlarms = alarmsArray.filter((a) => a.id !== id);
       saveAlarms(filteredAlarms);
       setAlarms(filteredAlarms);

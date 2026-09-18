@@ -144,7 +144,30 @@ If the repo already has commits (e.g. it was created with a README),
 pull first: `git pull origin main --allow-unrelated-histories`, resolve
 any conflicts, then push.
 
+### Round 3: build reliability fixes
+A previous version of this repo caused real build failures. Root causes,
+now fixed:
+- **Guessed package versions** — `@capacitor/filesystem` and `@capacitor/android`
+  had been added to `package.json` with version numbers that were never
+  verified against the real npm registry. Both are removed:
+  `@capacitor/android` is installed fresh at build time (like the other
+  Capacitor native tooling) instead of being pinned, and the custom-song
+  feature was rewritten to use the browser's built-in IndexedDB instead of
+  the Filesystem plugin — zero extra dependency, zero version risk.
+- **A fragile multi-line `sed` command** patched `AndroidManifest.xml` to
+  add permissions; multi-line `sed -i '/pattern/a\` blocks are notoriously
+  easy to get subtly wrong across shells/sed versions. Replaced with
+  `android-assets/patch_manifest.py`, a small, tested Python script that
+  does a plain, unambiguous text insertion.
+- If you were using a hand-simplified workflow with `npx cap init "Alarmio Pro" "com.alarmio.pro"`
+  in it: **remove that line** if you add it back — it silently overwrites
+  the correct `capacitor.config.ts` (which already has the right
+  `com.crroyal.alarm` / "CR Royal Alarm") with the old placeholder name,
+  so the build succeeds but produces a wrongly-branded app. `cap add android`
+  alone (no `cap init`) is enough since the config file already exists.
+
 ## Getting the APK — no Codemagic, just GitHub
+
 
 Everything needed to build the APK lives in
 `.github/workflows/build-apk.yml`. As soon as you push to `main`,
