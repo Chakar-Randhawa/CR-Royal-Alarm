@@ -30,6 +30,7 @@ def main():
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
 
+    # 1) Permissions, inserted right after the <manifest ...> opening tag.
     block_lines = [f'    <uses-permission android:name="{p}" />' for p in PERMISSIONS]
     block = "\n".join(block_lines)
 
@@ -42,13 +43,28 @@ def main():
         raise SystemExit("patch_manifest.py: could not find end of <manifest ...> opening tag")
     insert_at += 1
 
-    new_content = content[:insert_at] + "\n" + block + content[insert_at:]
+    content = content[:insert_at] + "\n" + block + content[insert_at:]
+
+    # 2) windowSoftInputMode="adjustResize" on the main <activity ...> tag,
+    #    so the WebView's viewport actually shrinks when the keyboard opens
+    #    instead of the OS panning the whole window (which visually shifts
+    #    fixed-position headers down behind/under the status bar area).
+    activity_start = content.find("<activity")
+    if activity_start == -1:
+        raise SystemExit("patch_manifest.py: could not find <activity tag")
+
+    tag_end = activity_start + len("<activity")
+    content = (
+        content[:tag_end]
+        + '\n            android:windowSoftInputMode="adjustResize"'
+        + content[tag_end:]
+    )
 
     with open(path, "w", encoding="utf-8") as f:
-        f.write(new_content)
+        f.write(content)
 
-    print("patch_manifest.py: permissions inserted successfully.")
-    print(new_content)
+    print("patch_manifest.py: permissions + windowSoftInputMode inserted successfully.")
+    print(content)
 
 
 if __name__ == "__main__":

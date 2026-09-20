@@ -13,6 +13,8 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsControllerCompat;
 
 /**
  * Real native Android settings access that Capacitor's core plugins do not
@@ -101,6 +103,29 @@ public class NativeSettingsPlugin extends Plugin {
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             getContext().startActivity(intent);
         }
+        call.resolve();
+    }
+
+    /**
+     * Switches the status bar + navigation bar icon color (time/battery/
+     * signal, and the 3-button nav glyphs) to stay legible against
+     * whichever theme color is now showing through the transparent system
+     * bars. Call this from JS every time the app's theme changes.
+     *
+     * @param lightBackground true when the area behind the system bars is
+     *                        now a light color (e.g. the Nordic theme) and
+     *                        needs DARK icons for contrast; false for every
+     *                        dark theme, which needs WHITE icons.
+     */
+    @PluginMethod
+    public void setStatusBarStyle(PluginCall call) {
+        boolean lightBackground = call.getBoolean("lightBackground", false);
+        getActivity().runOnUiThread(() -> {
+            WindowInsetsControllerCompat controller =
+                    WindowCompat.getInsetsController(getActivity().getWindow(), getActivity().getWindow().getDecorView());
+            controller.setAppearanceLightStatusBars(lightBackground);
+            controller.setAppearanceLightNavigationBars(lightBackground);
+        });
         call.resolve();
     }
 }

@@ -33,12 +33,16 @@ automatically, right after `cap add android` and before the Gradle build.
   exemption, and exact-alarm scheduling permission (Android 12+). Used by
   `src/lib/nativeSettings.ts`.
 - **`java/com/crroyal/alarm/MainActivity.java`** — overrides the
-  auto-generated `MainActivity` to register `NativeSettingsPlugin` (custom
-  local plugins that aren't npm packages must be registered manually).
+  auto-generated `MainActivity` to register `NativeSettingsPlugin`, and
+  sets up true edge-to-edge (transparent status/nav bars, no automatic
+  contrast scrim) so the app's theme color reaches every pixel with zero
+  seam on any device.
 - **`patch_manifest.py`** — inserts the `<uses-permission>` tags this app
-  needs (exact-alarm, overlay, battery-exemption, etc.) into the freshly
-  generated `AndroidManifest.xml`. A plain Python script rather than a
-  multi-line `sed` command, so there's no shell-escaping ambiguity.
+  needs, and `android:windowSoftInputMode="adjustResize"` on the main
+  activity (so the keyboard properly resizes the WebView instead of
+  panning the whole window) into the freshly generated
+  `AndroidManifest.xml`. A plain Python script rather than a multi-line
+  `sed` command, so there's no shell-escaping ambiguity.
 
 Custom gallery songs are **not** stored here — they're saved on-device in
 IndexedDB (a standard browser API, see `src/lib/customAudio.ts`), which

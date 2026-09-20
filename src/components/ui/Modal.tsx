@@ -41,7 +41,10 @@ export function Modal({ open, onClose, title, children, fullScreen }: ModalProps
         {title && (
           <div
             className="flex items-center justify-between px-5 py-4 shrink-0"
-            style={{ borderBottom: `1px solid var(--c-border)` }}
+            style={{
+              borderBottom: `1px solid var(--c-border)`,
+              paddingTop: fullScreen ? 'max(16px, calc(env(safe-area-inset-top, 0px) + 8px))' : '16px',
+            }}
           >
             <h2 className="text-lg font-semibold" style={{ color: 'var(--c-text)' }}>
               {title}

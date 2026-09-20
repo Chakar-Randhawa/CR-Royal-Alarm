@@ -7,6 +7,7 @@ export interface NativeSettingsPlugin {
   openBatterySettings(): Promise<void>;
   isExactAlarmGranted(): Promise<{ granted: boolean }>;
   openExactAlarmSettings(): Promise<void>;
+  setStatusBarStyle(options: { lightBackground: boolean }): Promise<void>;
 }
 
 // Backed by android-assets/java/.../NativeSettingsPlugin.java, wired into
@@ -63,5 +64,18 @@ export async function requestExactAlarmPermission(): Promise<void> {
     await NativeSettings.openExactAlarmSettings();
   } catch {
     // no-op
+  }
+}
+
+/**
+ * Keeps the status bar / navigation bar icon color legible against
+ * whichever theme is now showing through the transparent system bars.
+ * Pass true when the current theme's background is light (Nordic).
+ */
+export async function setNativeStatusBarStyle(lightBackground: boolean): Promise<void> {
+  try {
+    await NativeSettings.setStatusBarStyle({ lightBackground });
+  } catch {
+    // web preview / unsupported platform — no-op
   }
 }

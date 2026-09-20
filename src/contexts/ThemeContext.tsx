@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { themes, type themes as themeMap } from '@/lib/themes';
 import { getSettings, saveSettings } from '@/lib/storage';
+import { setNativeStatusBarStyle } from '@/lib/nativeSettings';
 import type { ThemeId, ThemeColors } from '@/types';
 
 interface ThemeContextValue {
@@ -29,6 +30,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       root.style.setProperty(`--c-${key}`, value);
     });
     root.style.setProperty('color-scheme', theme.id === 'nordic' ? 'light' : 'dark');
+    setNativeStatusBarStyle(theme.id === 'nordic');
   }, [themeId, theme]);
 
   function setTheme(id: ThemeId) {
