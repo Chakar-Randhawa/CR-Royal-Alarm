@@ -166,7 +166,31 @@ now fixed:
   so the build succeeds but produces a wrongly-branded app. `cap add android`
   alone (no `cap init`) is enough since the config file already exists.
 
+### Round 4: layout fixes (status bar overlap, keyboard shift, theme edge gap)
+- **Settings/alarm-editor header touching the status bar** — `Modal.tsx`'s
+  header (used by both screens) never accounted for
+  `env(safe-area-inset-top)`, unlike the Dashboard header which already
+  did. Fixed.
+- **Content jumping when the keyboard opens** — Android's default
+  `windowSoftInputMode` is `adjustPan` (pans/shifts the whole window)
+  unless an app explicitly asks for `adjustResize` (properly shrinks the
+  WebView's viewport so flex layouts just adapt). `patch_manifest.py` now
+  also sets `android:windowSoftInputMode="adjustResize"` on the main
+  activity.
+- **A thin white sliver at the very edge on non-black/white themes** —
+  Android draws a translucent contrast "scrim" over transparent system
+  bars by default, which is a fixed grayish-white tint, not your theme's
+  color. `MainActivity.java` now explicitly disables that scrim
+  (`setStatusBarContrastEnforced(false)` / `setNavigationBarContrastEnforced(false)`)
+  and makes both bars fully transparent, so the app's own background
+  reaches every physical pixel with zero seam on any device. The status
+  bar / nav bar icon color (dark vs. light) now also switches
+  automatically with the theme, via a new `setStatusBarStyle` method on
+  the custom native plugin, called from `ThemeContext` every time the
+  theme changes.
+
 ## Getting the APK — no Codemagic, just GitHub
+
 
 
 Everything needed to build the APK lives in
