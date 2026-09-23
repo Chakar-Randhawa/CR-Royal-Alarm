@@ -1,263 +1,217 @@
-# CR Royal Alarm
+<div align="center">
 
-A 100% offline Android alarm clock built with React + TypeScript + Capacitor.
-No backend, no account, no internet required — every alarm, setting and
-theme choice lives entirely in the device's local storage.
+<img src=".github/assets/banner.svg" alt="CR Royal Alarm" width="100%" />
 
-## What was fixed / added in this build
+<br/>
 
-### Bug fixes
-- **Notification tap did nothing** — `App.tsx` read alarms from a
-  `localStorage` key (`alarms`) that nothing else ever wrote to; the rest
-  of the app used `alarms_pro_list`. Every read/write now goes through a
-  single `src/lib/storage.ts` helper with one consistent key.
-- **Alarm creation screen crashed** — `AlarmEditor.tsx` had an `<input>`
-  tag that was never closed (`/>`) before its parent `</div>`, which is
-  invalid JSX and would fail to compile.
-- **Dashboard screen crashed** — `Dashboard.tsx` declared `loadAlarms()`
-  twice and had a broken/incomplete sort-dropdown block.
-- **Toasts silently failed** — `showToast(message, type)` now properly
-  supports `'default' | 'success' | 'error'`.
-- **Delete button icon was invisible** — the trash icon color matched
-  its own red background exactly.
-- **Notification sound never played** — fixed the Android sound resource
-  reference (bare name, no extension).
-- **Supabase removed entirely** — every setting/alarm is 100% local now.
-- **"Display Over Apps" / "Battery Unrestricted" were fake** — tapping
-  them used to just flip a green checkmark with no real effect. They now
-  open the actual Android Settings screens via a small custom native
-  plugin (see "Real permissions" below) and re-check automatically when
-  you return to the app.
+[![Build Android APK](https://img.shields.io/github/actions/workflow/status/Chakar-Randhawa/CR-Royal-Alarm/build-apk.yml?branch=main&label=Build%20APK&style=for-the-badge&logo=android&logoColor=white&color=dc2626)](https://github.com/Chakar-Randhawa/CR-Royal-Alarm/actions)
+[![React](https://img.shields.io/badge/React-18.3-black?style=for-the-badge&logo=react&logoColor=61DAFB)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.5-black?style=for-the-badge&logo=typescript&logoColor=3178C6)](https://www.typescriptlang.org)
+[![Capacitor](https://img.shields.io/badge/Capacitor-8-black?style=for-the-badge&logo=capacitor&logoColor=119EFF)](https://capacitorjs.com)
+[![License](https://img.shields.io/badge/License-Proprietary-black?style=for-the-badge&color=dc2626)](#license)
 
-### New features
-- **Real overlay / battery / exact-alarm permissions** — a custom native
-  Capacitor plugin (`android-assets/java/.../NativeSettingsPlugin.java`)
-  opens the genuine Android Settings screens for these three permissions,
-  which have no web API. Status is re-checked automatically whenever the
-  app regains focus (e.g. coming back from Settings).
-- **Custom song as alarm tone** — pick any song from your phone's gallery
-  (tap "Choose a song from your gallery" in the alarm editor's Audio
-  section). Pick how much of it to use as the ringing clip (5s up to the
-  full length, default 30s) — it loops seamlessly until dismissed. The
-  file is copied into the app's private storage via the Filesystem
-  plugin, so it's never re-requested from the gallery and survives
-  restarts.
-- **Real audio-reactive ringing screen** — the equalizer bars on the
-  ringing screen are driven by a live Web Audio `AnalyserNode` reading
-  the actual audio that's playing (tone or custom song) — not a canned
-  animation.
-- **Premium first-launch experience** — the very first time the app is
-  ever opened, it shows an elaborate animated splash (icon reveal → name
-  → "Founder By Chakar Randhawa" tagline) before onboarding. Every later
-  launch uses a quick, lightweight splash instead.
-- **Guided first-run tour** — right after onboarding, a real coach-mark
-  overlay highlights the actual dashboard buttons (add alarm, quick nap,
-  filters, sort, settings) one at a time with Next / Skip Tour, shown
-  only once.
-- **Android navigation-bar overlap fixed** — the floating "+" button,
-  toasts, and full-screen sheets now use `env(safe-area-inset-bottom)`
-  correctly, so content no longer collides with Android's 3-button
-  navigation bar (this only showed up on button-nav devices — gesture-nav
-  devices were already fine, since Capacitor forwards real system-bar
-  insets as CSS environment variables).
-- Rebranded from "Alarmio Pro" to **CR Royal Alarm** throughout.
+**A premium, 100% offline Android alarm clock — no backend, no account, no internet.**
+Every alarm, setting and theme choice lives entirely on the device.
 
-### Round 2 fixes (based on real-device testing feedback)
-- **App icon was still the Capacitor default** — never actually wired in.
-  Now generated at every Android density (legacy + adaptive icon with
-  proper safe-zone padding) from the gold crown/clock artwork and copied
-  into the build automatically. See `android-assets/README.md`.
-- **No AM/PM in the time picker** — the old picker was a bare 24-hour
-  number field, which is exactly what caused the "picked Friday, got '6
-  days'" confusion: it's easy to enter the wrong hour with no AM/PM to
-  cross-check against. The editor now has a proper 12-hour stepper (tap
-  arrows or type) with an AM/PM toggle, **plus a live "Next rings ... at
-  ..." preview** right under the day selector so you can verify the exact
-  day and time before saving — no more guessing from a bare countdown
-  number.
-  - To be clear on timezones: the app was already using the phone's own
-    system clock for everything (JavaScript's `Date` always reflects the
-    device's local time zone automatically) — install it in Lahore and
-    it uses Lahore time, install it in Sydney and it uses Sydney time,
-    with no manual timezone setting anywhere. There was no timezone bug;
-    the missing AM/PM indicator was the actual problem.
-- **Custom gallery song was buried** — it lived inside a collapsed "Audio
-  & Vibration" section. It's now its own always-visible card right on the
-  main New/Edit Alarm screen, and the alarm's dashboard card shows a
-  small 🎵 badge naming whichever tone/song is set.
-- **Subtle intentional loading polish** — the dashboard now shows a brief
-  skeleton-card placeholder for ~450ms on first open (instead of popping
-  instantly), for a more native, settled-in feel. Kept short on purpose.
+[Features](#-features) · [Themes](#-themes) · [Tech Stack](#-tech-stack) · [Getting the APK](#-getting-the-apk) · [Project Structure](#-project-structure) · [Permissions](#-permissions)
 
-## Project structure
+</div>
 
-```
+<br/>
+
+## ✨ Overview
+
+**CR Royal Alarm** is a native-feeling Android alarm clock built entirely with a web stack —
+**React + TypeScript** on the front end, shipped as a real Android app through **Capacitor**.
+There is no server, no database, and no sign-in anywhere in the product: every alarm, every
+setting, and every theme choice is written to the device's own local storage through a single
+typed storage layer, so the app works exactly the same with the phone in airplane mode as it
+does online.
+
+It's built to feel like a paid, polished product rather than a demo — an animated founder
+splash on first launch, a guided coach-mark tour of the dashboard, real Android permission
+screens instead of fake toggles, and an audio-reactive ringing screen driven by a live
+`AnalyserNode`, not a canned animation.
+
+<br/>
+
+## 🚀 Features
+
+| | |
+|---|---|
+| ⏰ **Real exact alarms** | Scheduled through Capacitor's native `LocalNotifications`, with `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM` and boot-persistence — alarms survive a phone restart. |
+| 🎵 **Custom song as alarm tone** | Pick any song from the phone's gallery, choose how much of it to use as the ringing clip (5s → full length), and it loops seamlessly until dismissed. |
+| 📊 **Audio-reactive ringing screen** | The equalizer bars are driven by a real Web Audio `AnalyserNode` reading the actual tone or song that's playing. |
+| 🧮 **Dismiss missions** | Math problems (fully generated & checked), device-shake detection, and a barcode-scanner mission to force you to actually wake up. |
+| 🛡️ **Genuine system permissions** | "Display over other apps," "Unrestricted battery," and exact-alarm access open the *real* Android Settings screens via a custom native Capacitor plugin — not a fake green checkmark. |
+| 🎨 **5 built-in themes** | From true-black AMOLED to a clean light theme — see [Themes](#-themes) below. |
+| 🧭 **Guided first-run tour** | Coach-marks the real dashboard buttons (add alarm, quick nap, filters, sort) once, right after onboarding. |
+| 💤 **Quick nap tiles** | One-tap short naps straight from the dashboard, no editor required. |
+| 📴 **Fully offline** | Zero network calls. No backend, no accounts, no analytics — everything lives in local storage. |
+| 🤖 **Automated APK builds** | Every push to `main` builds a signed-ready APK on GitHub's own runners — no Android Studio, no third-party CI. |
+
+<br/>
+
+## 🎨 Themes
+
+<img src=".github/assets/themes.svg" alt="CR Royal Alarm themes" width="100%" />
+
+Every theme is a fully-typed color palette (`src/lib/themes.ts`) applied live through
+`ThemeContext` — including the Android status bar and navigation bar color, which switch
+automatically between light and dark icon styles as you change themes.
+
+<br/>
+
+## 🛠️ Tech Stack
+
+<table>
+<tr>
+<td valign="top" width="33%">
+
+**Core**
+- React 18 + TypeScript 5.5
+- Vite 5
+- Tailwind CSS 3
+
+</td>
+<td valign="top" width="33%">
+
+**Native layer**
+- Capacitor 8 (Android)
+- `@capacitor/local-notifications`
+- `@capacitor-community/keep-awake`
+- Custom native Java plugin for permissions
+
+</td>
+<td valign="top" width="33%">
+
+**In-house, zero extra deps**
+- Web Audio API (tones + analyser)
+- IndexedDB (custom song storage)
+- `lucide-react` icon set
+
+</td>
+</tr>
+</table>
+
+<br/>
+
+## 📂 Project Structure
+
+```text
 src/
   components/
     dashboard/     Dashboard, AlarmCard, QuickNapTiles
-    editor/        AlarmEditor (create/edit alarm + all mission/audio settings)
+    editor/        AlarmEditor — create/edit alarm + mission & audio settings
     onboarding/    First-run permission walkthrough
     settings/      Theme + default alarm settings screen
-    trigger/       Full-screen ringing UI with math/shake/scanner missions
+    trigger/       Full-screen ringing UI (math / shake / scanner missions)
     ui/            Modal, Dropdown, Slider, Toggle, Toast
     icons/         Inline SVG icon set
   contexts/        ThemeContext (5 built-in themes)
   lib/
-    storage.ts     Single source of truth for all localStorage reads/writes
-    notifications.ts  Capacitor LocalNotifications scheduling
-    audio.ts       Web Audio alarm tones, vibration patterns, TTS briefing
-    themes.ts      Theme color definitions
-  types/           Shared TypeScript types
-android-assets/    Custom notification icon + alarm sound (copied into the
-                   native project automatically during the CI build)
-.github/workflows/build-apk.yml   Builds the APK automatically on GitHub
+    storage.ts       single source of truth for all local storage reads/writes
+    notifications.ts Capacitor LocalNotifications scheduling
+    audio.ts          alarm tones, vibration patterns, TTS briefing
+    themes.ts          theme color definitions
+  types/           shared TypeScript types
+
+android-assets/    notification icon + alarm sound + app icon, copied into
+                   the native project automatically during the CI build
+.github/workflows/build-apk.yml   builds the APK automatically on GitHub
 ```
 
-The `android/` native folder is **not** committed — see
-`android-assets/README.md` for why, and how it's generated automatically.
+> The `android/` native folder is **not** committed — it's generated fresh on every CI
+> run from `capacitor.config.ts` + `android-assets/`. See `android-assets/README.md`.
 
-## Running it locally (optional, for development)
+<br/>
+
+## 🔧 Running It Locally
 
 ```bash
 npm install
 npm run dev
 ```
 
-Opens at `http://localhost:5173`. Alarm scheduling / vibration / native
-notifications only work on an actual Android device or emulator (via
-Capacitor) — the web preview is just for UI work.
+Opens at `http://localhost:5173`. Alarm scheduling, vibration and native notifications only
+work on an actual Android device or emulator via Capacitor — the web preview is for UI work
+only.
 
-## Getting this onto GitHub
+<br/>
 
-From inside this folder:
+## 📦 Getting the APK
 
-```bash
-git init
-git add .
-git commit -m "CR Royal Alarm - initial commit"
-git branch -M main
-git remote add origin https://github.com/Chakar-Randhawa/CR-Royal-Alarm.git
-git push -u origin main
-```
+No Android Studio, no Java, no local setup required — GitHub builds it for you.
 
-If the repo already has commits (e.g. it was created with a README),
-pull first: `git pull origin main --allow-unrelated-histories`, resolve
-any conflicts, then push.
+1. Push to `main` (or open the **Actions** tab and run the workflow manually)
+2. Open the **Actions** tab → latest **Build Android APK** run
+3. Wait for it to finish (5–10 minutes on a cold run)
+4. Scroll to **Artifacts** → download **`cr-royal-alarm-debug-apk`**
+5. Unzip → `app-debug.apk` → copy to your phone and install
+   (Android will prompt you to allow "install unknown apps" the first time)
 
-### Round 3: build reliability fixes
-A previous version of this repo caused real build failures. Root causes,
-now fixed:
-- **Guessed package versions** — `@capacitor/filesystem` and `@capacitor/android`
-  had been added to `package.json` with version numbers that were never
-  verified against the real npm registry. Both are removed:
-  `@capacitor/android` is installed fresh at build time (like the other
-  Capacitor native tooling) instead of being pinned, and the custom-song
-  feature was rewritten to use the browser's built-in IndexedDB instead of
-  the Filesystem plugin — zero extra dependency, zero version risk.
-- **A fragile multi-line `sed` command** patched `AndroidManifest.xml` to
-  add permissions; multi-line `sed -i '/pattern/a\` blocks are notoriously
-  easy to get subtly wrong across shells/sed versions. Replaced with
-  `android-assets/patch_manifest.py`, a small, tested Python script that
-  does a plain, unambiguous text insertion.
-- If you were using a hand-simplified workflow with `npx cap init "Alarmio Pro" "com.alarmio.pro"`
-  in it: **remove that line** if you add it back — it silently overwrites
-  the correct `capacitor.config.ts` (which already has the right
-  `com.crroyal.alarm` / "CR Royal Alarm") with the old placeholder name,
-  so the build succeeds but produces a wrongly-branded app. `cap add android`
-  alone (no `cap init`) is enough since the config file already exists.
+The debug APK is fully installable with Android's default debug signing key — fine for
+personal use, not for the Play Store.
 
-### Round 4: layout fixes (status bar overlap, keyboard shift, theme edge gap)
-- **Settings/alarm-editor header touching the status bar** — `Modal.tsx`'s
-  header (used by both screens) never accounted for
-  `env(safe-area-inset-top)`, unlike the Dashboard header which already
-  did. Fixed.
-- **Content jumping when the keyboard opens** — Android's default
-  `windowSoftInputMode` is `adjustPan` (pans/shifts the whole window)
-  unless an app explicitly asks for `adjustResize` (properly shrinks the
-  WebView's viewport so flex layouts just adapt). `patch_manifest.py` now
-  also sets `android:windowSoftInputMode="adjustResize"` on the main
-  activity.
-- **A thin white sliver at the very edge on non-black/white themes** —
-  Android draws a translucent contrast "scrim" over transparent system
-  bars by default, which is a fixed grayish-white tint, not your theme's
-  color. `MainActivity.java` now explicitly disables that scrim
-  (`setStatusBarContrastEnforced(false)` / `setNavigationBarContrastEnforced(false)`)
-  and makes both bars fully transparent, so the app's own background
-  reaches every physical pixel with zero seam on any device. The status
-  bar / nav bar icon color (dark vs. light) now also switches
-  automatically with the theme, via a new `setStatusBarStyle` method on
-  the custom native plugin, called from `ThemeContext` every time the
-  theme changes.
+**Want a signed release build?** Add these four repository secrets under
+**Settings → Secrets and variables → Actions**, and the workflow will also produce a
+**`cr-royal-alarm-release-apk`** artifact on every push:
 
-## Getting the APK — no Codemagic, just GitHub
-
-
-
-Everything needed to build the APK lives in
-`.github/workflows/build-apk.yml`. As soon as you push to `main`,
-GitHub itself builds the app on its own servers. You don't need to
-install Android Studio, Java, or anything else locally.
-
-**To download the APK:**
-
-1. Go to your repo on github.com
-2. Click the **Actions** tab
-3. Click the most recent **"Build Android APK"** run (it starts
-   automatically a few seconds after your push — look for the small
-   yellow/green dot next to your latest commit)
-4. Wait for it to finish (5–10 minutes the first time)
-5. Scroll down to **Artifacts** at the bottom of that run's page
-6. Click **cr-royal-alarm-debug-apk** to download a `.zip`
-7. Unzip it — inside is `app-debug.apk`
-8. Copy it to your phone (USB, email to yourself, Google Drive, etc.)
-   and open it to install. You'll need to allow "Install unknown apps"
-   for whichever app you used to open it (Android will prompt you the
-   first time).
-
-That debug APK is fully installable and functional — Android's default
-debug signing key is used automatically, which is fine for personal use
-and testing. It just isn't suitable for publishing to the Play Store.
-
-**If you also want a signed release APK** (needed for Play Store, or if
-you just want a "production" build), add these four repo secrets under
-**Settings → Secrets and variables → Actions → New repository secret**:
-
-| Secret name | Value |
+| Secret | Value |
 |---|---|
-| `ANDROID_KEYSTORE_BASE64` | Your `.jks`/`.keystore` file, base64-encoded (`base64 -w0 your.keystore` on Linux/macOS) |
-| `ANDROID_KEYSTORE_PASSWORD` | The keystore password |
-| `ANDROID_KEY_ALIAS` | The key alias inside the keystore |
-| `ANDROID_KEY_PASSWORD` | The key's password |
+| `ANDROID_KEYSTORE_BASE64` | Your `.keystore`/`.jks`, base64-encoded (`base64 -w0 your.keystore`) |
+| `ANDROID_KEYSTORE_PASSWORD` | Keystore password |
+| `ANDROID_KEY_ALIAS` | Key alias inside the keystore |
+| `ANDROID_KEY_PASSWORD` | Key password |
 
-Once those exist, the workflow automatically also builds and uploads a
-**cr-royal-alarm-release-apk** artifact on every push. If you don't have
-a keystore yet, create one once with:
+No keystore yet?
 
 ```bash
 keytool -genkeypair -v -keystore release.keystore -alias cr_royal_alarm \
   -keyalg RSA -keysize 2048 -validity 10000
 ```
 
-(keep this file and its passwords somewhere safe — you'll need the exact
-same keystore for every future update once the app is on the Play Store)
+Keep that file and its passwords safe — the same keystore is required for every future
+update once the app is published.
 
-## Manually re-running a build
+<br/>
 
-Go to the **Actions** tab → **Build Android APK** → **Run workflow**
-(top right) any time you want a fresh APK without pushing a new commit.
+## 🔐 Permissions
 
-## Notes on what's simulated vs. real
+| Permission | Why |
+|---|---|
+| `SCHEDULE_EXACT_ALARM` / `USE_EXACT_ALARM` | Alarms fire at the exact second set, not "roughly around" |
+| `RECEIVE_BOOT_COMPLETED` | Alarms survive a phone restart |
+| `WAKE_LOCK` | Wakes the device when an alarm fires |
+| `VIBRATE` | Vibration patterns on ring |
+| `SYSTEM_ALERT_WINDOW` | Real "display over other apps" for the ringing screen |
+| `POST_NOTIFICATIONS` | Required on Android 13+ to show alarm notifications |
+| `ACCESS_NOTIFICATION_POLICY` | Do-not-disturb bypass for alarms |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Prevents Android from killing the app before an alarm fires |
 
-- **Math mission**: fully real — generates and checks equations.
-- **Shake mission**: real device-motion detection on a real phone;
-  falls back to a manual button in a browser (no motion sensor there).
-- **Overlay / battery / exact-alarm permissions**: fully real — backed by
-  the custom native plugin, not simulated.
-- **Custom gallery song as alarm tone**: fully real — real file picker,
-  real persistent storage, real looping playback.
-- **Scanner mission**: UI only (a real camera-based barcode scanner
-  needs a native plugin like `@capacitor-community/barcode-scanning`,
-  which isn't wired in — the "Simulate Scan" button stands in for it so
-  you can still complete the mission and dismiss the alarm).
-- **Flashlight-in-scanner-mode toggle**: stored as a preference but not
-  wired to an actual flashlight plugin.
+<br/>
+
+## ✅ What's Real vs. Simulated
+
+| Feature | Status |
+|---|---|
+| Math dismiss mission | ✅ Fully real — generated & checked live |
+| Shake dismiss mission | ✅ Real device-motion detection (falls back to a manual button in browser preview) |
+| Overlay / battery / exact-alarm permissions | ✅ Fully real — backed by a custom native Capacitor plugin |
+| Custom gallery song as tone | ✅ Fully real — real file picker, real persistent storage, real looping playback |
+| Scanner dismiss mission | 🟡 UI only — a real camera scanner needs a native barcode plugin that isn't wired in; "Simulate Scan" stands in for it |
+| Flashlight toggle in scanner mode | 🟡 Stored as a preference, not wired to a real flashlight plugin |
+
+<br/>
+
+## 📜 License
+
+Proprietary — © CR Digital Enterprises. All rights reserved.
+
+<br/>
+
+<div align="center">
+
+Built and maintained by **[Chakar Randhawa](https://cr-digital-enterprises.netlify.app)** · CR Digital Enterprises
+
+</div>
